@@ -9,8 +9,11 @@
     claimMap: {},
     mySelection: [],
     summaryView: 'byItem',
+    summaryCache: null,
     billImageDataUrl: null,
-    productIcons: []
+    productIcons: [],
+    claimsLoaded: false,
+    mySelectionOriginal: []
   };
 
   function init(el) {
@@ -22,7 +25,21 @@
       return;
     }
     renderShell();
-    loadData();
+    prefetchBillImage();
+  }
+
+  function prefetchBillImage() {
+    var apiUrl = global.SPLITIFY_CONFIG && global.SPLITIFY_CONFIG.API_URL;
+    if (!apiUrl || !state.billId) return;
+    var url = apiUrl + '?action=getBillImageById&billId=' + encodeURIComponent(state.billId);
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && !res.error && res.data && res.data.base64) {
+          state.billImageDataUrl = 'data:' + (res.data.mimeType || 'image/jpeg') + ';base64,' + res.data.base64;
+        }
+      })
+      .catch(function () { /* silently ignore — lightbox will fetch on demand if this fails */ });
   }
 
   function renderShell() {
@@ -34,11 +51,15 @@
       '<div class="tabs">' +
       '<button id="tab-claim" class="tab tab--active">Claim</button>' +
       '<button id="tab-summary" class="tab">Summary</button>' +
+      '<button id="open-bill-image" class="icon-btn tabs__bill-icon" type="button" title="Open bill image" aria-label="Open bill image">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2h16v16l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5V2z"></path><line x1="8" y1="7" x2="16" y2="7"></line><line x1="8" y1="11" x2="16" y2="11"></line><line x1="8" y1="15" x2="13" y2="15"></line></svg>' +
+      '</button>' +
       '</div>' +
       '<div id="tab-content"></div>' +
       '</main>';
     document.getElementById('tab-claim').addEventListener('click', function () { setTab('claim'); });
     document.getElementById('tab-summary').addEventListener('click', function () { setTab('summary'); });
+    document.getElementById('open-bill-image').addEventListener('click', openBillImageLightbox);
     renderTab();
   }
 
@@ -49,71 +70,97 @@
     renderTab();
   }
 
-  function loadData() {
-    Promise.all([
-      SplitifyAPI.getBillById(state.billId),
-      SplitifyAPI.getClaimsByBillId(state.billId),
-      SplitifyAPI.getProductIcons().catch(function () { return []; })
-    ]).then(function (results) {
-      state.bill = results[0];
-      state.claims = results[1] || [];
-      state.productIcons = results[2] || [];
-      state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
-      state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
-      renderTab();
-    }).catch(function (err) {
-      var mount = document.getElementById('tab-content');
-      mount.innerHTML = '<p class="status status--error">' + escapeHtml(err.message || String(err)) + '</p>';
-    });
-  }
-
   function renderTab() {
     var mount = document.getElementById('tab-content');
     if (!mount) return;
-    if (!state.bill) {
-      mount.innerHTML = '<p class="status">Loading bill...</p>';
-      return;
-    }
     if (state.tab === 'summary') return renderSummaryTab(mount);
     return renderClaimTab(mount);
   }
 
   function renderClaimTab(mount) {
+    var itemsHtml = state.claimsLoaded
+      ? '<div id="bill-items"></div>' +
+        '<div id="claim-selection-summary" class="card claim-selection-summary"></div>' +
+        '<button id="submit-claims-btn" class="btn">Submit My Claims</button>'
+      : '';
     mount.innerHTML =
-      '<div class="bill-tools"><button id="open-bill-image-claim" class="icon-btn" type="button" title="Open bill image" aria-label="Open bill image">' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14"></path><path d="M3 16l5-5 4 4 3-3 6 6"></path><circle cx="8.5" cy="8.5" r="1.5"></circle></svg>' +
-      '</button></div>' +
-      '<div id="name-mount"></div>' +
-      '<div id="bill-items"></div>' +
-      '<div id="claim-selection-summary" class="card claim-selection-summary"></div>' +
+      '<div class="claim-entry-row">' +
+      '<div id="name-mount" class="claim-name-mount"></div>' +
+      '<button id="make-claim-btn" class="btn" type="button">Make a claim</button>' +
+      '</div>' +
       '<p id="claim-status" class="status"></p>' +
-      '<button id="submit-claims-btn" class="btn">Submit My Claims</button>';
-    document.getElementById('open-bill-image-claim').addEventListener('click', openBillImageLightbox);
+      itemsHtml;
+
     SplitifyNameCombobox.mount(document.getElementById('name-mount'), {
       initialValue: state.userName,
       onSelect: function (name) {
-        state.userName = resolveExistingUserName(name);
-        state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
-        renderClaimSelectionSummary();
+        state.userName = name.trim();
+        updateMakeClaimBtn();
+        if (state.claimsLoaded) {
+          state.claimsLoaded = false;
+          state.mySelection = [];
+          ['bill-items', 'claim-selection-summary', 'submit-claims-btn'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+          });
+        }
       }
     });
 
-    var groups = buildConsolidated(state.bill.items || []);
-    var list = document.getElementById('bill-items');
-    list.innerHTML = '';
-    for (var i = 0; i < groups.length; i++) {
-      list.appendChild(SplitifyProductRow.render({
-        category: groups[i].category,
-        description: groups[i].description,
-        slots: groups[i].slots,
-        productIcons: state.productIcons,
-        claimMap: state.claimMap,
-        currentUser: state.userName,
-        onSlotClick: onSlotClick
-      }));
+    updateMakeClaimBtn();
+    document.getElementById('make-claim-btn').addEventListener('click', function () {
+      if (!state.userName) {
+        updateClaimStatus('Enter your name first.', true);
+        return;
+      }
+      var btn = document.getElementById('make-claim-btn');
+      if (btn) btn.disabled = true;
+      if (global.SplitifyWorking) global.SplitifyWorking.begin('Loading bill...');
+      Promise.all([
+        SplitifyAPI.getBillById(state.billId),
+        SplitifyAPI.getClaimsByBillId(state.billId),
+        SplitifyAPI.getProductIcons().catch(function () { return []; })
+      ]).then(function (results) {
+        if (global.SplitifyWorking) global.SplitifyWorking.end();
+        state.bill = results[0];
+        state.claims = results[1] || [];
+        state.productIcons = results[2] || [];
+        state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
+        state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
+        state.mySelectionOriginal = state.mySelection.slice();
+        state.claimsLoaded = true;
+        renderClaimTab(mount);
+      }).catch(function (err) {
+        if (global.SplitifyWorking) global.SplitifyWorking.end();
+        if (btn) btn.disabled = false;
+        updateClaimStatus(err.message || String(err), true);
+      });
+    });
+
+    if (state.claimsLoaded) {
+      var groups = buildConsolidated(state.bill.items || []);
+      var list = document.getElementById('bill-items');
+      list.innerHTML = '';
+      for (var i = 0; i < groups.length; i++) {
+        list.appendChild(SplitifyProductRow.render({
+          category: groups[i].category,
+          description: groups[i].description,
+          slots: groups[i].slots,
+          productIcons: state.productIcons,
+          claimMap: state.claimMap,
+          currentUser: state.userName,
+          onSlotClick: onSlotClick
+        }));
+      }
+      renderClaimSelectionSummary();
+      document.getElementById('submit-claims-btn').addEventListener('click', submitClaims);
     }
-    renderClaimSelectionSummary();
-    document.getElementById('submit-claims-btn').addEventListener('click', submitClaims);
+  }
+
+  function updateMakeClaimBtn() {
+    var btn = document.getElementById('make-claim-btn');
+    if (!btn) return;
+    btn.disabled = !state.userName;
   }
 
   function onSlotClick(rowIndex, unitIndex) {
@@ -131,13 +178,37 @@
     } else {
       state.mySelection.push({ rowIndex: rowIndex, unitIndex: unitIndex });
     }
-    // optimistic remap for UI
-    var claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
+    // optimistic remap: use other users' server claims + current user's mySelection only
+    var currentUserNorm = SplitifyClaimsState.normalizeName(state.userName);
+    var otherClaims = (state.claims || []).filter(function (c) {
+      return SplitifyClaimsState.normalizeName(c.userName) !== currentUserNorm;
+    });
+    var claimMap = SplitifyClaimsState.buildClaimMap(otherClaims);
     for (var i = 0; i < state.mySelection.length; i++) {
       claimMap[SplitifyClaimsState.slotKey(state.mySelection[i].rowIndex, state.mySelection[i].unitIndex)] = state.userName;
     }
     state.claimMap = claimMap;
     renderTab();
+  }
+
+  function refreshClaimItems() {
+    var groups = buildConsolidated(state.bill ? state.bill.items || [] : []);
+    var list = document.getElementById('bill-items');
+    if (list) {
+      list.innerHTML = '';
+      for (var i = 0; i < groups.length; i++) {
+        list.appendChild(SplitifyProductRow.render({
+          category: groups[i].category,
+          description: groups[i].description,
+          slots: groups[i].slots,
+          productIcons: state.productIcons,
+          claimMap: state.claimMap,
+          currentUser: state.userName,
+          onSlotClick: onSlotClick
+        }));
+      }
+    }
+    renderClaimSelectionSummary();
   }
 
   function renderClaimSelectionSummary() {
@@ -184,15 +255,102 @@
       '<h3>Selection So Far</h3>' +
       listHtml +
       '<ul class="summary-list">' +
-      '<li><span>Items subtotal</span><strong>EUR ' + SplitifyFormatters.formatMoney(subtotal) + '</strong></li>' +
-      '<li><span>Tip share</span><strong>EUR ' + SplitifyFormatters.formatMoney(tipShare) + '</strong></li>' +
-      '<li><span>Total with tip</span><strong>EUR ' + SplitifyFormatters.formatMoney(totalWithTip) + '</strong></li>' +
+      '<li><span>Items subtotal</span><strong>€' + SplitifyFormatters.formatMoney(subtotal) + '</strong></li>' +
+      '<li><span>Tip share</span><strong>€' + SplitifyFormatters.formatMoney(tipShare) + '</strong></li>' +
+      '<li><span>Total with tip</span><strong>€' + SplitifyFormatters.formatMoney(totalWithTip) + '</strong></li>' +
       '</ul>';
+  }
+
+  function computeSummaryFromState() {
+    var bill = state.bill;
+    var claims = state.claims;
+    if (!bill) return null;
+    var claimMap = {};
+    for (var c = 0; c < claims.length; c++) {
+      claimMap[claims[c].rowIndex + '_' + claims[c].unitIndex] = claims[c].userName;
+    }
+    var billTotal = 0;
+    for (var x = 0; x < bill.items.length; x++) billTotal += bill.items[x].total_price || 0;
+    var totalPaid = bill.metadata && bill.metadata.totalPaid != null ? bill.metadata.totalPaid : billTotal;
+    var tip = Math.max(0, totalPaid - billTotal);
+    var tipPercent = billTotal > 0 ? (tip / billTotal) * 100 : 0;
+    var byUserSlots = {};
+    var byItem = [];
+    for (var i = 0; i < bill.items.length; i++) {
+      var it = bill.items[i];
+      var claimed = 0;
+      var itemClaimByUser = {};
+      for (var u = 0; u < it.quantity; u++) {
+        var name = claimMap[it.rowIndex + '_' + u];
+        if (!name) continue;
+        claimed++;
+        itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
+        if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
+        byUserSlots[name].subtotal += it.unit_price || 0;
+      }
+      var claimsByUser = [];
+      var itemUserNames = Object.keys(itemClaimByUser).sort();
+      for (var iu = 0; iu < itemUserNames.length; iu++) {
+        claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
+      }
+      byItem.push({
+        description: it.description, category: it.category,
+        quantity: it.quantity, claimed: claimed,
+        unclaimed: Math.max(0, it.quantity - claimed),
+        unitPrice: it.unit_price || 0, totalPrice: it.total_price || 0,
+        claimsByUser: claimsByUser
+      });
+    }
+    var byUser = [];
+    var names = Object.keys(byUserSlots).sort();
+    for (var n = 0; n < names.length; n++) {
+      var nm = names[n];
+      var sub = byUserSlots[nm].subtotal;
+      var tipShare = billTotal > 0 ? tip * (sub / billTotal) : 0;
+      byUser.push({ userName: nm, subtotal: sub, tipShare: tipShare, totalWithTip: sub + tipShare });
+    }
+    return { billId: bill.billId, billTotal: billTotal, totalPaid: totalPaid, tipAmount: tip, tipPercent: tipPercent, byUser: byUser, byItem: byItem };
+  }
+
+  function selectionUnchanged() {
+    var cur = state.mySelection;
+    var orig = state.mySelectionOriginal;
+    if (cur.length !== orig.length) return false;
+    var makeKey = function (s) { return s.rowIndex + '_' + s.unitIndex; };
+    var origKeys = {};
+    for (var i = 0; i < orig.length; i++) origKeys[makeKey(orig[i])] = true;
+    for (var j = 0; j < cur.length; j++) { if (!origKeys[makeKey(cur[j])]) return false; }
+    return true;
+  }
+
+  function showSubmitInfoMessage(text) {
+    var btn = document.getElementById('submit-claims-btn');
+    var msg = document.createElement('div');
+    msg.className = 'submit-info-message';
+    msg.setAttribute('role', 'status');
+    msg.setAttribute('aria-live', 'polite');
+    msg.textContent = text;
+    document.body.appendChild(msg);
+    if (btn) {
+      var rect = btn.getBoundingClientRect();
+      msg.style.left = (rect.left + rect.width / 2) + 'px';
+      msg.style.top = (rect.top - 10) + 'px';
+      btn.disabled = true;
+    }
+    setTimeout(function () {
+      if (msg.parentNode) msg.parentNode.removeChild(msg);
+      if (btn) btn.disabled = false;
+    }, 1200);
   }
 
   function submitClaims() {
     if (!state.userName) {
       return updateClaimStatus('Enter your name first.', true);
+    }
+    if (selectionUnchanged()) {
+      var hasOriginal = state.mySelectionOriginal.length > 0;
+      showSubmitInfoMessage(hasOriginal ? 'Already submitted' : 'Nothing claimed');
+      return;
     }
     SplitifyAPI.submitClaimsByBillId({
       billId: state.billId,
@@ -201,8 +359,10 @@
     }).then(function (res) {
       state.claims = res.claims || [];
       state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
-      updateClaimStatus('Claims saved.');
-      setTab('summary');
+      state.mySelectionOriginal = state.mySelection.slice();
+      state.summaryCache = computeSummaryFromState();
+      updateClaimStatus('Successfully Recorded');
+      setTimeout(function () { updateClaimStatus(''); }, 3000);
     }).catch(function (err) {
       updateClaimStatus(err.message || String(err), true);
     });
@@ -216,18 +376,29 @@
   }
 
   function renderSummaryTab(mount) {
-    mount.innerHTML = '<div class="bill-tools">' +
-      '<button id="summary-view-toggle" class="btn btn--secondary" type="button">View: ' + (state.summaryView === 'byUser' ? 'By User' : 'By Item') + '</button>' +
-      '<button id="open-bill-image-summary" class="icon-btn" type="button" title="Open bill image" aria-label="Open bill image">' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14"></path><path d="M3 16l5-5 4 4 3-3 6 6"></path><circle cx="8.5" cy="8.5" r="1.5"></circle></svg>' +
-      '</button></div><div id="summary-mount" class="summary-grid"></div>';
-    document.getElementById('summary-view-toggle').addEventListener('click', function () {
-      state.summaryView = state.summaryView === 'byUser' ? 'byItem' : 'byUser';
+    mount.innerHTML =
+      '<div class="summary-tab-bar">' +
+      '<div class="summary-tab-headings">' +
+      '<button id="summary-tab-byuser" class="summary-tab-heading' + (state.summaryView === 'byUser' ? ' summary-tab-heading--active' : '') + '" type="button">By User</button>' +
+      '<button id="summary-tab-byitem" class="summary-tab-heading' + (state.summaryView === 'byItem' ? ' summary-tab-heading--active' : '') + '" type="button">By Item</button>' +
+      '</div>' +
+      '</div>' +
+      '<div id="summary-mount" class="summary-grid summary-grid--' + (state.summaryView === 'byUser' ? 'byuser' : 'byitem') + '"></div>';
+    document.getElementById('summary-tab-byuser').addEventListener('click', function () {
+      state.summaryView = 'byUser';
       renderSummaryTab(mount);
     });
-    document.getElementById('open-bill-image-summary').addEventListener('click', openBillImageLightbox);
+    document.getElementById('summary-tab-byitem').addEventListener('click', function () {
+      state.summaryView = 'byItem';
+      renderSummaryTab(mount);
+    });
+    if (state.summaryCache) {
+      SplitifySummary.render(document.getElementById('summary-mount'), state.summaryCache, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
+      return;
+    }
     SplitifyAPI.getBillSummaryById(state.billId).then(function (summary) {
-      SplitifySummary.render(document.getElementById('summary-mount'), summary, { viewMode: state.summaryView });
+      state.summaryCache = summary;
+      SplitifySummary.render(document.getElementById('summary-mount'), summary, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
     }).catch(function (err) {
       mount.innerHTML = '<p class="status status--error">' + escapeHtml(err.message || String(err)) + '</p>';
     });

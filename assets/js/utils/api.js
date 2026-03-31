@@ -1,15 +1,11 @@
 (function (global) {
-  var pendingRequests = 0;
-
   function requestStart(action) {
-    pendingRequests += 1;
     if (global.SplitifyWorking && global.SplitifyWorking.begin) {
       global.SplitifyWorking.begin('Working: ' + action + '...');
     }
   }
 
   function requestEnd() {
-    pendingRequests = Math.max(0, pendingRequests - 1);
     if (global.SplitifyWorking && global.SplitifyWorking.end) {
       global.SplitifyWorking.end();
     }
@@ -36,6 +32,12 @@
   }
 
   function requestGet(action, params) {
+    if (typeof SheetsRead !== 'undefined' && SheetsRead.isReadAction(action)) {
+      requestStart(action);
+      return SheetsRead.getReadResponse(Object.assign({}, params || {}, { action: action }))
+        .then(function (data) { requestEnd(); return data; },
+              function (err)  { requestEnd(); throw err; });
+    }
     var url = getApiUrl() + toQuery(Object.assign({}, params || {}, { action: action }));
     requestStart(action);
     return fetch(url).then(function (r) { return r.json(); }).then(unwrap).then(function (data) {

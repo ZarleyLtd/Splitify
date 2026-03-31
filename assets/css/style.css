@@ -58,6 +58,7 @@ h1, h2, h3 { margin: 0 0 12px; }
   text-decoration: none;
 }
 .btn--secondary { background: var(--accent-2); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .button-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 
 .status { margin: 12px 0; color: var(--muted); }
@@ -136,9 +137,23 @@ h1, h2, h3 { margin: 0 0 12px; }
   overflow-wrap: anywhere;
 }
 
-.tabs { display: flex; gap: 8px; margin: 8px 0 14px; }
+.tabs { display: flex; gap: 8px; margin: 8px 0 14px; align-items: center; }
+.tabs__bill-icon { margin-left: auto; }
 .tab { background: #c6b499; color: #34271d; cursor: pointer; }
 .tab--active { background: var(--accent-2); color: #fff; }
+.claim-entry-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.claim-name-mount {
+  flex: 1 1 auto;
+  max-width: 220px;
+  min-width: 110px;
+}
+.claim-name-mount .text-input { margin-bottom: 0; }
+
 .bill-tools {
   display: flex;
   justify-content: space-between;
@@ -234,7 +249,40 @@ h1, h2, h3 { margin: 0 0 12px; }
   cursor: not-allowed;
 }
 
+.summary-tab-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 0;
+}
+.summary-tab-headings {
+  display: flex;
+  gap: 0;
+}
+.summary-tab-heading {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 7px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--muted);
+  cursor: pointer;
+  position: relative;
+  top: 1px;
+}
+.summary-tab-heading + .summary-tab-heading { margin-left: -1px; }
+.summary-tab-heading--active {
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--text);
+  z-index: 1;
+}
+
 .summary-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.summary-grid--byuser .summary-card:first-child { border-radius: 0 12px 12px 12px; }
+.summary-grid--byitem .summary-card:first-child { border-radius: 12px 0 12px 12px; }
 .summary-card {
   background: rgba(255, 255, 255, 0.4);
   border-radius: 12px;
@@ -249,14 +297,45 @@ h1, h2, h3 { margin: 0 0 12px; }
   border-bottom: 1px dashed rgba(0, 0, 0, 0.15);
 }
 .summary-list li:last-child { border-bottom: 0; }
-.summary-item-row,
-.summary-user-row { align-items: flex-start; }
-.summary-item-row__left,
-.summary-user-row__left { display: grid; gap: 4px; }
+.summary-item-row { align-items: flex-start; }
+.summary-item-row__left { display: grid; gap: 4px; }
+.summary-user-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.summary-user-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+}
+.summary-user-header__tip {
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.summary-user-product {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 3px 0 0 10px;
+}
 .summary-item-main { font-weight: 700; }
 .summary-subline {
   font-size: 14px;
   color: var(--muted);
+}
+.summary-card--unclaimed {
+  background: rgba(155, 53, 42, 0.08);
+  border: 1px solid rgba(155, 53, 42, 0.2);
+}
+.summary-item-main--unclaimed {
+  color: #7a2318;
+  font-style: italic;
 }
 .summary-subline--unclaimed {
   color: #6e160d;
@@ -271,6 +350,16 @@ h1, h2, h3 { margin: 0 0 12px; }
   align-items: center;
   gap: 8px;
   font-weight: 700;
+}
+.summary-view-bill--btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .claims-bill-lightbox {
@@ -316,6 +405,21 @@ h1, h2, h3 { margin: 0 0 12px; }
   height: auto;
   border-radius: 10px;
   display: block;
+}
+
+.submit-info-message {
+  position: fixed;
+  z-index: 600;
+  transform: translate(-50%, -100%);
+  padding: 7px 16px;
+  background: rgba(24, 20, 17, 0.93);
+  color: #efe6d4;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 .working-indicator {
