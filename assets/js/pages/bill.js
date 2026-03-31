@@ -21,7 +21,9 @@
     var params = new URLSearchParams(window.location.search || '');
     state.billId = params.get('billId');
     if (!state.billId) {
-      rootEl.innerHTML = '<main class="panel"><h1>Splitify</h1><p class="status status--error">Missing billId in URL.</p></main>';
+      rootEl.innerHTML =
+        '<main class="panel"><h1>Splitify</h1><p class="status status--error">Missing billId in URL.</p></main>' +
+        '<p class="bill-cartoon-caption">I had one breadstick; I don\'t agree with an equal split!</p>';
       return;
     }
     renderShell();
@@ -44,7 +46,6 @@
 
   function renderShell() {
     rootEl.innerHTML =
-      '<div class="smoke-bg"></div>' +
       '<main class="panel panel--wide">' +
       '<h1>Splitify</h1>' +
       '<p class="muted">Bill ID: ' + escapeHtml(state.billId) + '</p>' +
@@ -56,7 +57,8 @@
       '</button>' +
       '</div>' +
       '<div id="tab-content"></div>' +
-      '</main>';
+      '</main>' +
+      '<p class="bill-cartoon-caption">I had one breadstick; I don\'t agree with an equal split!</p>';
     document.getElementById('tab-claim').addEventListener('click', function () { setTab('claim'); });
     document.getElementById('tab-summary').addEventListener('click', function () { setTab('summary'); });
     document.getElementById('open-bill-image').addEventListener('click', openBillImageLightbox);

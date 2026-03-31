@@ -92,7 +92,6 @@
   function render() {
     if (!rootEl) return;
     rootEl.innerHTML =
-      '<div class="smoke-bg"></div>' +
       '<main class="panel">' +
       '<h1>Splitify</h1>' +
       '<p class="muted">Upload a bill image to create a shareable claim link.</p>' +
