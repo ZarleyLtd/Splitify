@@ -89,28 +89,69 @@
     render();
   }
 
+  function closeUploaderSourcePicker() {
+    var picker = document.getElementById('uploader-source-picker');
+    var trigger = document.getElementById('upload-bill-trigger');
+    if (picker) picker.setAttribute('hidden', '');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  }
+
   function render() {
     if (!rootEl) return;
+    var camSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+    var galSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>';
+
     rootEl.innerHTML =
       '<main class="panel">' +
       '<h1>Splitify</h1>' +
       '<p class="muted">Upload a bill image to create a shareable claim link.</p>' +
-      '<input id="bill-file" type="file" accept="image/*" class="hidden-input">' +
-      '<button id="upload-btn" class="btn">Select Bill Image</button>' +
+      '<div class="uploader-upload-actions">' +
+      '<button type="button" id="upload-bill-trigger" class="btn" aria-expanded="false" aria-controls="uploader-source-picker">Upload Bill Image</button>' +
+      '<div id="uploader-source-picker" class="uploader-source-picker" hidden>' +
+      '<p class="uploader-source-picker__hint">Take a photo or choose from gallery or files.</p>' +
+      '<div class="uploader-upload-buttons">' +
+      '<input type="file" accept="image/*" capture="environment" id="bill-camera" class="uploader-file-input" aria-hidden="true">' +
+      '<input type="file" accept="image/*" id="bill-gallery" class="uploader-file-input" aria-hidden="true">' +
+      '<label class="uploader-pick-btn uploader-pick-btn--camera" for="bill-camera" title="Take photo with camera">' +
+      '<span class="uploader-pick-btn__icon" aria-hidden="true">' + camSvg + '</span>' +
+      '<span class="uploader-pick-btn__text">Camera</span></label>' +
+      '<label class="uploader-pick-btn uploader-pick-btn--gallery" for="bill-gallery" title="Choose image from gallery or file">' +
+      '<span class="uploader-pick-btn__icon" aria-hidden="true">' + galSvg + '</span>' +
+      '<span class="uploader-pick-btn__text">Gallery / File</span></label>' +
+      '</div></div></div>' +
       '<div id="upload-status" class="status"></div>' +
       '<div id="verify-box"></div>' +
-      '</main>';
+      '</main>' +
+      '<p class="uploader-cartoon-caption">Okay, Who had wine, and who only had water?</p>';
 
-    document.getElementById('upload-btn').addEventListener('click', function () {
-      document.getElementById('bill-file').click();
+    document.getElementById('upload-bill-trigger').addEventListener('click', function () {
+      var picker = document.getElementById('uploader-source-picker');
+      if (!picker) return;
+      var willOpen = picker.hasAttribute('hidden');
+      if (willOpen) {
+        picker.removeAttribute('hidden');
+        this.setAttribute('aria-expanded', 'true');
+      } else {
+        picker.setAttribute('hidden', '');
+        this.setAttribute('aria-expanded', 'false');
+      }
     });
-    document.getElementById('bill-file').addEventListener('change', onFilePicked);
+
+    function bindFileInput(id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', onFilePicked);
+    }
+    bindFileInput('bill-camera');
+    bindFileInput('bill-gallery');
   }
 
   function onFilePicked(e) {
     var file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
+    closeUploaderSourcePicker();
     setStatus('Preparing image...');
     var compressPromise = SplitifyImageCompress.compressBillImage(file);
     if (typeof SplitifyWorking !== 'undefined' && SplitifyWorking.withWorking) {

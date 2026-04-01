@@ -13,45 +13,55 @@
         html += '<p class="muted">No claims yet.</p>';
       } else {
         var byItem = Array.isArray(summary.byItem) ? summary.byItem : [];
-        var userProducts = {};
-        var unclaimedItems = [];
+        // Aggregate per-user products by description so repeated bill lines for the
+        // same product collapse into one row (count summed, value summed).
+        var userProductMap = {};   // { userName: { description: { count, totalValue } } }
+        var unclaimedMap = {};     // { description: { count, totalValue } }
         var unclaimedSubtotal = 0;
         for (var k = 0; k < byItem.length; k++) {
           var it = byItem[k];
+          var desc = it.description || '';
           var claimedBy = Array.isArray(it.claimsByUser) ? it.claimsByUser : [];
           for (var ci = 0; ci < claimedBy.length; ci++) {
             var cu = claimedBy[ci];
-            if (!userProducts[cu.userName]) userProducts[cu.userName] = [];
-            userProducts[cu.userName].push({ description: it.description, count: cu.count, unitPrice: it.unitPrice || 0 });
+            if (!userProductMap[cu.userName]) userProductMap[cu.userName] = {};
+            if (!userProductMap[cu.userName][desc]) {
+              userProductMap[cu.userName][desc] = { description: desc, count: 0, totalValue: 0 };
+            }
+            userProductMap[cu.userName][desc].count += cu.count || 0;
+            userProductMap[cu.userName][desc].totalValue += (cu.count || 0) * (it.unitPrice || 0);
           }
           if ((it.unclaimed || 0) > 0) {
             var uLineVal = it.unclaimed * (it.unitPrice || 0);
             unclaimedSubtotal += uLineVal;
-            unclaimedItems.push({ description: it.description, count: it.unclaimed, value: uLineVal });
+            if (!unclaimedMap[desc]) unclaimedMap[desc] = { description: desc, count: 0, totalValue: 0 };
+            unclaimedMap[desc].count += it.unclaimed;
+            unclaimedMap[desc].totalValue += uLineVal;
           }
         }
         html += '<ul class="summary-list">';
         for (var i = 0; i < summary.byUser.length; i++) {
           var u = summary.byUser[i];
-          var prods = userProducts[u.userName] || [];
+          var prodMap = userProductMap[u.userName] || {};
+          var prodDescs = Object.keys(prodMap).sort();
           html += '<li class="summary-user-row">';
           html += '<div class="summary-user-header">' +
             '<div class="summary-item-main">' + escapeHtml(u.userName) + '</div>' +
             '<span class="summary-subline summary-user-header__tip">Tip €' + SplitifyFormatters.formatMoney(u.tipShare || 0) + '</span>' +
             '<strong>€' + SplitifyFormatters.formatMoney(u.totalWithTip || 0) + '</strong>' +
             '</div>';
-          for (var pi = 0; pi < prods.length; pi++) {
-            var p = prods[pi];
-            var lineTotal = (p.count || 1) * p.unitPrice;
+          for (var pi = 0; pi < prodDescs.length; pi++) {
+            var p = prodMap[prodDescs[pi]];
             html += '<div class="summary-user-product">' +
               '<span>' + escapeHtml(p.description) + (p.count > 1 ? ' \xd7' + p.count : '') + '</span>' +
-              '<span>€' + SplitifyFormatters.formatMoney(lineTotal) + '</span>' +
+              '<span>€' + SplitifyFormatters.formatMoney(p.totalValue) + '</span>' +
               '</div>';
           }
           html += '</li>';
         }
         html += '</ul>';
-        if (unclaimedItems.length > 0) {
+        var unclaimedDescs = Object.keys(unclaimedMap);
+        if (unclaimedDescs.length > 0) {
           var billTotal = summary.billTotal || 0;
           var tipAmount = summary.tipAmount || 0;
           var uTipShare = billTotal > 0 ? tipAmount * (unclaimedSubtotal / billTotal) : 0;
@@ -62,11 +72,12 @@
             '<span class="summary-subline summary-user-header__tip">Tip €' + SplitifyFormatters.formatMoney(uTipShare) + '</span>' +
             '<strong>€' + SplitifyFormatters.formatMoney(uTotal) + '</strong>' +
             '</div>';
-          for (var upi = 0; upi < unclaimedItems.length; upi++) {
-            var up = unclaimedItems[upi];
+          unclaimedDescs.sort();
+          for (var upi = 0; upi < unclaimedDescs.length; upi++) {
+            var up = unclaimedMap[unclaimedDescs[upi]];
             unclaimedCardHtml += '<div class="summary-user-product">' +
               '<span>' + escapeHtml(up.description) + (up.count > 1 ? ' \xd7' + up.count : '') + '</span>' +
-              '<span>€' + SplitifyFormatters.formatMoney(up.value) + '</span>' +
+              '<span>€' + SplitifyFormatters.formatMoney(up.totalValue) + '</span>' +
               '</div>';
           }
           unclaimedCardHtml += '</li></ul></div>';

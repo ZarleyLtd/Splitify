@@ -13,8 +13,35 @@
     billImageDataUrl: null,
     productIcons: [],
     claimsLoaded: false,
-    mySelectionOriginal: []
+    mySelectionOriginal: [],
+    /** Per consolidated group key `g0`…: slot order (matches theConfessional: sort by state once, then stable). */
+    consolidatedRowOrder: {}
   };
+
+  var SLOT_STATE_ORDER = { 'claimed-by-me': 0, 'available': 1, 'claimed-by-other': 2 };
+
+  function getOrderedSlotsForGroup(group, groupIndex) {
+    var rowKey = 'g' + groupIndex;
+    var slots = group.slots || [];
+    if (state.consolidatedRowOrder[rowKey] && state.consolidatedRowOrder[rowKey].length === slots.length) {
+      return state.consolidatedRowOrder[rowKey];
+    }
+    var withState = slots.map(function (s) {
+      return {
+        rowIndex: s.rowIndex,
+        unitIndex: s.unitIndex,
+        state: SplitifyClaimsState.getSlotState(state.claimMap, state.userName, s.rowIndex, s.unitIndex)
+      };
+    });
+    withState.sort(function (a, b) {
+      return SLOT_STATE_ORDER[a.state] - SLOT_STATE_ORDER[b.state];
+    });
+    var ordered = withState.map(function (x) {
+      return { rowIndex: x.rowIndex, unitIndex: x.unitIndex };
+    });
+    state.consolidatedRowOrder[rowKey] = ordered;
+    return ordered;
+  }
 
   function init(el) {
     rootEl = el;
@@ -52,8 +79,8 @@
       '<div class="tabs">' +
       '<button id="tab-claim" class="tab tab--active">Claim</button>' +
       '<button id="tab-summary" class="tab">Summary</button>' +
-      '<button id="open-bill-image" class="icon-btn tabs__bill-icon" type="button" title="Open bill image" aria-label="Open bill image">' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2h16v16l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5V2z"></path><line x1="8" y1="7" x2="16" y2="7"></line><line x1="8" y1="11" x2="16" y2="11"></line><line x1="8" y1="15" x2="13" y2="15"></line></svg>' +
+      '<button type="button" id="open-bill-image" class="bill-image-fab" title="Open bill image" aria-label="Open bill image">' +
+      '<span class="bill-image-fab__receipt" aria-hidden="true"></span>' +
       '</button>' +
       '</div>' +
       '<div id="tab-content"></div>' +
@@ -66,10 +93,40 @@
   }
 
   function setTab(tab) {
+    var prev = state.tab;
     state.tab = tab;
     document.getElementById('tab-claim').classList.toggle('tab--active', tab === 'claim');
     document.getElementById('tab-summary').classList.toggle('tab--active', tab === 'summary');
+    // Always fetch fresh data for Summary; always discard stale summary when returning to Claim.
+    state.summaryCache = null;
     renderTab();
+    // When returning to Claim tab with claims already loaded, silently refresh other users'
+    // claims so the slot states reflect the current server truth.
+    if (tab === 'claim' && prev === 'summary' && state.claimsLoaded && state.billId) {
+      backgroundRefreshClaims();
+    }
+  }
+
+  function backgroundRefreshClaims() {
+    SplitifyAPI.getClaimsByBillId(state.billId)
+      .then(function (freshClaims) {
+        state.claims = freshClaims || [];
+        // Rebuild claimMap: other users' latest claims + current user's pending mySelection.
+        var currentUserNorm = SplitifyClaimsState.normalizeName(state.userName);
+        var otherClaims = state.claims.filter(function (c) {
+          return SplitifyClaimsState.normalizeName(c.userName) !== currentUserNorm;
+        });
+        var claimMap = SplitifyClaimsState.buildClaimMap(otherClaims);
+        for (var i = 0; i < state.mySelection.length; i++) {
+          claimMap[SplitifyClaimsState.slotKey(state.mySelection[i].rowIndex, state.mySelection[i].unitIndex)] = state.userName;
+        }
+        state.claimMap = claimMap;
+        // Only update the DOM if we are still on the claim tab.
+        if (state.tab === 'claim') {
+          refreshClaimItems();
+        }
+      })
+      .catch(function () { /* silently ignore — stale data is shown */ });
   }
 
   function renderTab() {
@@ -88,7 +145,7 @@
     mount.innerHTML =
       '<div class="claim-entry-row">' +
       '<div id="name-mount" class="claim-name-mount"></div>' +
-      '<button id="make-claim-btn" class="btn" type="button">Make a claim</button>' +
+      '<button id="make-claim-btn" class="btn claim-entry-row__action" type="button">Make a claim</button>' +
       '</div>' +
       '<p id="claim-status" class="status"></p>' +
       itemsHtml;
@@ -130,6 +187,7 @@
         state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
         state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
         state.mySelectionOriginal = state.mySelection.slice();
+        state.consolidatedRowOrder = {};
         state.claimsLoaded = true;
         renderClaimTab(mount);
       }).catch(function (err) {
@@ -147,11 +205,12 @@
         list.appendChild(SplitifyProductRow.render({
           category: groups[i].category,
           description: groups[i].description,
-          slots: groups[i].slots,
+          slots: getOrderedSlotsForGroup(groups[i], i),
           productIcons: state.productIcons,
           claimMap: state.claimMap,
           currentUser: state.userName,
-          onSlotClick: onSlotClick
+          onSlotClick: onSlotClick,
+          onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
       renderClaimSelectionSummary();
@@ -163,6 +222,72 @@
     var btn = document.getElementById('make-claim-btn');
     if (!btn) return;
     btn.disabled = !state.userName;
+  }
+
+  /**
+   * Brief message pattern (see .cursor/rules/brief-message.mdc): pill above trigger, 1200ms.
+   * @param {string} text
+   * @param {HTMLElement|null} triggerEl - element to anchor above (fixed coords from getBoundingClientRect)
+   * @param {{ durationMs?: number, disableElement?: HTMLElement|null }} [options]
+   */
+  /**
+   * Brief message pattern (see .cursor/rules/brief-message.mdc): pill above trigger, 1200ms.
+   * @param {string} text
+   * @param {HTMLElement|null} triggerEl - element to anchor above (fixed coords from getBoundingClientRect)
+   * @param {{ durationMs?: number, disableElement?: HTMLElement|null }} [options]
+   */
+  function showBriefMessage(text, triggerEl, options) {
+    options = options || {};
+    var durationMs = options.durationMs != null ? options.durationMs : 1200;
+    var disableEl = options.disableElement != null ? options.disableElement : null;
+    var msg = document.createElement('div');
+    msg.className = 'brief-message brief-message--above';
+    msg.setAttribute('role', 'status');
+    msg.setAttribute('aria-live', 'polite');
+    msg.textContent = text;
+    document.body.appendChild(msg);
+    if (triggerEl && typeof triggerEl.getBoundingClientRect === 'function') {
+      var rect = triggerEl.getBoundingClientRect();
+      var centerX = rect.left + rect.width / 2;
+      msg.style.top = (rect.top - 8) + 'px';
+      msg.style.left = centerX + 'px';
+      // Read rendered bounds (after CSS transform) to clamp horizontally
+      var msgRect = msg.getBoundingClientRect();
+      var pad = 8;
+      var left = centerX;
+      if (msgRect.left < pad) {
+        left = left + (pad - msgRect.left);
+      } else if (msgRect.right > window.innerWidth - pad) {
+        left = left - (msgRect.right - (window.innerWidth - pad));
+      }
+      msg.style.left = left + 'px';
+      // If there is not enough room above the trigger, show below instead
+      if (msgRect.top < pad) {
+        msg.style.top = (rect.bottom + 8) + 'px';
+        msg.classList.remove('brief-message--above');
+        msg.classList.add('brief-message--below');
+      }
+    } else {
+      msg.style.left = '50%';
+      msg.style.top = '25%';
+    }
+    if (disableEl) disableEl.disabled = true;
+    setTimeout(function () {
+      if (msg.parentNode) msg.parentNode.removeChild(msg);
+      if (disableEl) disableEl.disabled = false;
+    }, durationMs);
+  }
+
+  function showSubmitInfoMessage(text) {
+    var btn = document.getElementById('submit-claims-btn');
+    showBriefMessage(text, btn, { disableElement: btn });
+  }
+
+  function onClaimedByOtherClick(rowIndex, unitIndex, triggerEl) {
+    var key = SplitifyClaimsState.slotKey(rowIndex, unitIndex);
+    var name = state.claimMap[key] || '';
+    var label = String(name).trim() || 'someone';
+    showBriefMessage('Claimed by ' + label, triggerEl || null);
   }
 
   function onSlotClick(rowIndex, unitIndex) {
@@ -202,11 +327,12 @@
         list.appendChild(SplitifyProductRow.render({
           category: groups[i].category,
           description: groups[i].description,
-          slots: groups[i].slots,
+          slots: getOrderedSlotsForGroup(groups[i], i),
           productIcons: state.productIcons,
           claimMap: state.claimMap,
           currentUser: state.userName,
-          onSlotClick: onSlotClick
+          onSlotClick: onSlotClick,
+          onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
     }
@@ -325,26 +451,6 @@
     return true;
   }
 
-  function showSubmitInfoMessage(text) {
-    var btn = document.getElementById('submit-claims-btn');
-    var msg = document.createElement('div');
-    msg.className = 'submit-info-message';
-    msg.setAttribute('role', 'status');
-    msg.setAttribute('aria-live', 'polite');
-    msg.textContent = text;
-    document.body.appendChild(msg);
-    if (btn) {
-      var rect = btn.getBoundingClientRect();
-      msg.style.left = (rect.left + rect.width / 2) + 'px';
-      msg.style.top = (rect.top - 10) + 'px';
-      btn.disabled = true;
-    }
-    setTimeout(function () {
-      if (msg.parentNode) msg.parentNode.removeChild(msg);
-      if (btn) btn.disabled = false;
-    }, 1200);
-  }
-
   function submitClaims() {
     if (!state.userName) {
       return updateClaimStatus('Enter your name first.', true);
@@ -362,9 +468,11 @@
       state.claims = res.claims || [];
       state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
       state.mySelectionOriginal = state.mySelection.slice();
-      state.summaryCache = computeSummaryFromState();
+      state.summaryCache = null;
       updateClaimStatus('Successfully Recorded');
       setTimeout(function () { updateClaimStatus(''); }, 3000);
+      // Refresh slot visuals immediately so the Claim tab reflects the server response.
+      refreshClaimItems();
     }).catch(function (err) {
       updateClaimStatus(err.message || String(err), true);
     });

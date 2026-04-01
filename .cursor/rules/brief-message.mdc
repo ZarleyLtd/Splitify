@@ -1,0 +1,49 @@
+---
+description: Splitify "brief message" transient UI (pill above trigger; 1200ms)
+globs:
+  - "**/bill.js"
+  - "**/style.css"
+  - "**/product-row.js"
+---
+
+# Brief message (Splitify)
+
+When the user asks for a **brief message**, **transient feedback**, or similar near a control, use the same pattern as **"Nothing claimed"** / **"Already submitted"** on the bill claim tab (`showBriefMessage` in `assets/js/pages/bill.js` and `.brief-message` in `assets/css/style.css`).
+
+## Size and shape
+
+- **Pill**: `border-radius: 999px` (not a rounded rectangle).
+- **Padding**: `7px 16px` (compact).
+- **Typography**: `font-size: 14px`, `font-weight: 600`, `white-space: nowrap` by default; if copy can be long, constrain with `max-width` (e.g. `min(92vw, 18rem)`) and `text-overflow: ellipsis` / `overflow: hidden`.
+- **Colors**: `background: rgba(24, 20, 17, 0.93)`, `color: #efe6d4`.
+- **Shadow**: `box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35)`.
+- **Layering**: `z-index: 600`, `pointer-events: none` (non-interactive).
+
+## Visibility duration
+
+- **1200ms** from show to remove (default). Remove the element from the DOM when done (do not leave a hidden node permanently).
+
+## Position relative to the trigger
+
+- **`position: fixed`** on the message, class `brief-message--above` by default.
+- Anchor to the **trigger element** (the button or control that caused the message):
+  1. `centerX = rect.left + rect.width / 2` (from `getBoundingClientRect()`).
+  2. Set `msg.style.top = rect.top - 8 + 'px'` and `msg.style.left = centerX + 'px'`.
+  3. **Read `msg.getBoundingClientRect()`** (after the CSS transform is applied) to get the pill's actual rendered bounds.
+  4. **Clamp horizontally** with 8px edge padding:
+     - if `msgRect.left < 8`, shift `left` right by the deficit;
+     - if `msgRect.right > window.innerWidth - 8`, shift `left` left by the overflow.
+  5. **Flip below** if off-screen at top (`msgRect.top < 8`): set `top = rect.bottom + 8`, swap class to `brief-message--below`.
+- CSS transforms: `.brief-message--above { transform: translate(-50%, -100%) }` (pill sits above), `.brief-message--below { transform: translate(-50%, 0) }` (pill sits below).
+
+## Accessibility
+
+- `role="status"`, `aria-live="polite"`.
+
+## Optional behavior
+
+- **Disable a control** while the message is visible (e.g. submit button): pass `disableElement` in options; re-enable when the message is removed.
+
+## Do not
+
+- Reuse a different pattern (e.g. bottom-center toast, long duration, or large rounded rectangle) unless the user explicitly asks otherwise.
