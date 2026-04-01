@@ -144,6 +144,17 @@ var SheetsRead = (function () {
     });
   }
 
+  function getQuips() {
+    return fetchConfigEntries().then(function (entries) {
+      var out = [];
+      for (var i = 0; i < entries.length; i++) {
+        var lk = entries[i].key.toLowerCase();
+        if ((lk === 'quip' || lk === 'quips') && entries[i].value) out.push(entries[i].value);
+      }
+      return out;
+    });
+  }
+
   function getActiveBillModel() {
     return fetchConfigEntries().then(function (entries) {
       for (var i = 0; i < entries.length; i++) {
@@ -167,11 +178,12 @@ var SheetsRead = (function () {
       // Parse BillMeta
       if (metaRows.length < 2) throw new Error('Bill not found');
       var mh = metaRows[0];
-      var mcBillId  = colIndex(mh, 'BillId');
-      var mcDate    = colIndex(mh, 'BillDate');
-      var mcImage   = colIndex(mh, 'BillImageId');
-      var mcOpen    = colIndex(mh, 'Open');
-      var mcPaid    = colIndex(mh, 'TotalPaid');
+      var mcBillId   = colIndex(mh, 'BillId');
+      var mcDate     = colIndex(mh, 'BillDate');
+      var mcImage    = colIndex(mh, 'BillImageId');
+      var mcOpen     = colIndex(mh, 'Open');
+      var mcPaid     = colIndex(mh, 'TotalPaid');
+      var mcVenueName = colIndex(mh, 'VenueName');
       var metaRow = null;
       for (var m = 1; m < metaRows.length; m++) {
         if (rowVal(metaRows[m], mcBillId) === billId) { metaRow = metaRows[m]; break; }
@@ -185,6 +197,7 @@ var SheetsRead = (function () {
       var paidStr   = rowVal(metaRow, mcPaid);
       var totalPaid = paidStr !== '' ? parseFloat(paidStr) : null;
       if (isNaN(totalPaid)) totalPaid = null;
+      var venueName = mcVenueName >= 0 ? rowVal(metaRow, mcVenueName) : '';
 
       // Parse Bills
       var items = [];
@@ -213,6 +226,7 @@ var SheetsRead = (function () {
       return {
         billId: billId,
         billDate: billDate,
+        venueName: venueName,
         items: items,
         metadata: { open: open, totalPaid: totalPaid, billImageId: imageId }
       };
@@ -329,7 +343,8 @@ var SheetsRead = (function () {
     getBillSummaryById: true,
     configNames:        true,
     getProductIcons:    true,
-    getActiveBillModel: true
+    getActiveBillModel: true,
+    getQuips:           true
   };
 
   function isReadAction(action) {
@@ -344,6 +359,7 @@ var SheetsRead = (function () {
     if (action === 'configNames')        return getConfigNames();
     if (action === 'getProductIcons')    return getProductIcons();
     if (action === 'getActiveBillModel') return getActiveBillModel();
+    if (action === 'getQuips')           return getQuips();
     return Promise.reject(new Error('Unknown fast-read action: ' + action));
   }
 

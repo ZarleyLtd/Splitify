@@ -56,8 +56,9 @@ body {
   width: min(36rem, calc(100% - 28px));
   margin: 0;
   padding: 0 14px;
-  font-family: "Permanent Marker", cursive;
-  font-size: clamp(1.05rem, 2.6vw, 1.35rem);
+  font-family: "Caveat", cursive;
+  font-weight: 700;
+  font-size: clamp(1.35rem, 3.2vw, 1.75rem);
   line-height: 1.4;
   text-align: center;
   color: rgba(250, 245, 232, 0.96);
@@ -160,6 +161,31 @@ body {
 h1, h2, h3 { margin: 0 0 12px; }
 .muted { color: var(--muted); margin-top: 0; }
 
+.bill-meta-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 12px;
+  gap: 8px;
+}
+.bill-venue-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.bill-venue-name--loading {
+  color: var(--muted);
+  font-weight: 400;
+}
+.bill-venue-name--empty {
+  display: none;
+}
+.bill-date {
+  color: var(--muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .btn, .tab, .share-link {
   border: 0;
   border-radius: 10px;
@@ -174,7 +200,50 @@ h1, h2, h3 { margin: 0 0 12px; }
   text-decoration: none;
 }
 .btn--secondary { background: var(--accent-2); }
+.btn--full { display: block; width: 100%; text-align: center; margin-top: 4px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Submit button progress bar */
+.submit-btn--progress {
+  position: relative;
+  overflow: hidden;
+  opacity: 1 !important;
+  cursor: default;
+}
+.submit-btn__label {
+  position: relative;
+  z-index: 1;
+}
+.submit-btn__bar {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: rgba(255, 255, 255, 0.22);
+  transition: width 5s linear;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Claims success overlay */
+.claims-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31, 26, 23, 0.62);
+  pointer-events: none;
+}
+.claims-success-overlay__text {
+  font-family: "Caveat", cursive;
+  font-weight: 700;
+  font-size: clamp(2rem, 6vw, 3rem);
+  color: #7adbb8;
+  text-align: center;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  padding: 0 24px;
+}
 .button-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 
 .status { margin: 12px 0; color: var(--muted); }

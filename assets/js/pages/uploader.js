@@ -87,6 +87,7 @@
   function init(el) {
     rootEl = el;
     render();
+    SplitifyQuips.applyRandomQuip('uploader-caption');
   }
 
   function closeUploaderSourcePicker() {
@@ -124,7 +125,7 @@
       '<div id="upload-status" class="status"></div>' +
       '<div id="verify-box"></div>' +
       '</main>' +
-      '<p class="uploader-cartoon-caption">Okay, Who had wine, and who only had water?</p>';
+      '<p id="uploader-caption" class="uploader-cartoon-caption"></p>';
 
     document.getElementById('upload-bill-trigger').addEventListener('click', function () {
       var picker = document.getElementById('uploader-source-picker');
@@ -183,9 +184,13 @@
     var el = document.getElementById('verify-box');
     if (!el) return;
     var billTotal = parseFloat(draft.billTotal) || 0;
+    var venueHtml = draft.venueName
+      ? '<p>Venue: <strong>' + escapeHtml(draft.venueName) + '</strong></p>'
+      : '';
     el.innerHTML =
       '<div class="card">' +
       '<h2>Verify</h2>' +
+      venueHtml +
       '<p>Bill date: <strong>' + SplitifyFormatters.formatBillDateDisplay(draft.billDate) + '</strong></p>' +
       '<p>Detected total: <strong>€ ' + SplitifyFormatters.formatMoney(billTotal) + '</strong></p>' +
       '<div class="tip-stack">' +

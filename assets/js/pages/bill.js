@@ -50,11 +50,38 @@
     if (!state.billId) {
       rootEl.innerHTML =
         '<main class="panel"><h1>Splitify</h1><p class="status status--error">Missing billId in URL.</p></main>' +
-        '<p class="bill-cartoon-caption">I had one breadstick; I don\'t agree with an equal split!</p>';
+        '<p id="bill-caption" class="bill-cartoon-caption"></p>';
+      SplitifyQuips.applyRandomQuip('bill-caption');
       return;
     }
     renderShell();
     prefetchBillImage();
+    prefetchBillMeta();
+  }
+
+  function prefetchBillMeta() {
+    if (!state.billId) return;
+    SplitifyAPI.getBillById(state.billId)
+      .then(function (bill) {
+        state.bill = bill;
+        updateBillMetaHeader(bill.venueName, bill.billDate);
+      })
+      .catch(function () {
+        updateBillMetaHeader('', null);
+      });
+  }
+
+  function updateBillMetaHeader(venueName, billDate) {
+    var venueEl = document.getElementById('bill-venue-name');
+    var dateEl = document.getElementById('bill-date-display');
+    if (venueEl) {
+      venueEl.textContent = venueName || '';
+      venueEl.classList.remove('bill-venue-name--loading');
+      if (!venueName) venueEl.classList.add('bill-venue-name--empty');
+    }
+    if (dateEl) {
+      dateEl.textContent = billDate ? SplitifyFormatters.formatBillDateDisplay(billDate) : '';
+    }
   }
 
   function prefetchBillImage() {
@@ -75,7 +102,10 @@
     rootEl.innerHTML =
       '<main class="panel panel--wide">' +
       '<h1>Splitify</h1>' +
-      '<p class="muted">Bill ID: ' + escapeHtml(state.billId) + '</p>' +
+      '<div id="bill-meta-header" class="bill-meta-header">' +
+      '<span id="bill-venue-name" class="bill-venue-name bill-venue-name--loading">Loading\u2026</span>' +
+      '<span id="bill-date-display" class="bill-date"></span>' +
+      '</div>' +
       '<div class="tabs">' +
       '<button id="tab-claim" class="tab tab--active">Claim</button>' +
       '<button id="tab-summary" class="tab">Summary</button>' +
@@ -85,10 +115,11 @@
       '</div>' +
       '<div id="tab-content"></div>' +
       '</main>' +
-      '<p class="bill-cartoon-caption">I had one breadstick; I don\'t agree with an equal split!</p>';
+      '<p id="bill-caption" class="bill-cartoon-caption"></p>';
     document.getElementById('tab-claim').addEventListener('click', function () { setTab('claim'); });
     document.getElementById('tab-summary').addEventListener('click', function () { setTab('summary'); });
     document.getElementById('open-bill-image').addEventListener('click', openBillImageLightbox);
+    SplitifyQuips.applyRandomQuip('bill-caption');
     renderTab();
   }
 
@@ -100,17 +131,19 @@
     // Always fetch fresh data for Summary; always discard stale summary when returning to Claim.
     state.summaryCache = null;
     renderTab();
-    // When returning to Claim tab with claims already loaded, silently refresh other users'
-    // claims so the slot states reflect the current server truth.
-    if (tab === 'claim' && prev === 'summary' && state.claimsLoaded && state.billId) {
+    // Background API refresh on every tab switch when claims are loaded — keeps both
+    // Claim and Summary in sync with the live sheet regardless of CSV cache lag.
+    if (state.claimsLoaded && state.billId) {
       backgroundRefreshClaims();
     }
   }
 
   function backgroundRefreshClaims() {
-    SplitifyAPI.getClaimsByBillId(state.billId)
+    if (!state.billId) return;
+    SplitifyAPI.getClaimsByBillIdDirect(state.billId)
       .then(function (freshClaims) {
         state.claims = freshClaims || [];
+        state.summaryCache = null;
         // Rebuild claimMap: other users' latest claims + current user's pending mySelection.
         var currentUserNorm = SplitifyClaimsState.normalizeName(state.userName);
         var otherClaims = state.claims.filter(function (c) {
@@ -121,12 +154,34 @@
           claimMap[SplitifyClaimsState.slotKey(state.mySelection[i].rowIndex, state.mySelection[i].unitIndex)] = state.userName;
         }
         state.claimMap = claimMap;
-        // Only update the DOM if we are still on the claim tab.
         if (state.tab === 'claim') {
           refreshClaimItems();
+        } else if (state.tab === 'summary') {
+          // Update summary content in-place so the user sees fresh data without a full re-render.
+          var freshSummary = buildSummaryFromState();
+          state.summaryCache = freshSummary;
+          var summaryMount = document.getElementById('summary-mount');
+          if (summaryMount) {
+            SplitifySummary.render(summaryMount, freshSummary, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
+          }
         }
       })
-      .catch(function () { /* silently ignore — stale data is shown */ });
+      .catch(function () { /* silently ignore — fast-read data remains visible */ });
+  }
+
+  function backgroundApiRefreshSummary() {
+    if (!state.billId) return;
+    SplitifyAPI.getBillSummaryByIdDirect(state.billId)
+      .then(function (freshSummary) {
+        state.summaryCache = freshSummary;
+        if (state.tab === 'summary') {
+          var summaryMount = document.getElementById('summary-mount');
+          if (summaryMount) {
+            SplitifySummary.render(summaryMount, freshSummary, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
+          }
+        }
+      })
+      .catch(function () { /* silently ignore — fast-read data remains visible */ });
   }
 
   function renderTab() {
@@ -140,7 +195,7 @@
     var itemsHtml = state.claimsLoaded
       ? '<div id="bill-items"></div>' +
         '<div id="claim-selection-summary" class="card claim-selection-summary"></div>' +
-        '<button id="submit-claims-btn" class="btn">Submit My Claims</button>'
+        '<button id="submit-claims-btn" class="btn btn--full">Submit My Claims</button>'
       : '';
     mount.innerHTML =
       '<div class="claim-entry-row">' +
@@ -175,8 +230,11 @@
       var btn = document.getElementById('make-claim-btn');
       if (btn) btn.disabled = true;
       if (global.SplitifyWorking) global.SplitifyWorking.begin('Loading bill...');
+      var billPromise = state.bill
+        ? Promise.resolve(state.bill)
+        : SplitifyAPI.getBillById(state.billId);
       Promise.all([
-        SplitifyAPI.getBillById(state.billId),
+        billPromise,
         SplitifyAPI.getClaimsByBillId(state.billId),
         SplitifyAPI.getProductIcons().catch(function () { return []; })
       ]).then(function (results) {
@@ -184,12 +242,14 @@
         state.bill = results[0];
         state.claims = results[1] || [];
         state.productIcons = results[2] || [];
+        updateBillMetaHeader(state.bill.venueName, state.bill.billDate);
         state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
         state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
         state.mySelectionOriginal = state.mySelection.slice();
         state.consolidatedRowOrder = {};
         state.claimsLoaded = true;
         renderClaimTab(mount);
+        backgroundRefreshClaims();
       }).catch(function (err) {
         if (global.SplitifyWorking) global.SplitifyWorking.end();
         if (btn) btn.disabled = false;
@@ -460,6 +520,24 @@
       showSubmitInfoMessage(hasOriginal ? 'Already submitted' : 'Nothing claimed');
       return;
     }
+
+    var PROGRESS_MS = 5000;
+    var tStart = Date.now();
+    var btn = document.getElementById('submit-claims-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('submit-btn--progress');
+      btn.innerHTML =
+        '<span class="submit-btn__label">Submitting\u2026</span>' +
+        '<span id="submit-claims-bar" class="submit-btn__bar"></span>';
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          var bar = document.getElementById('submit-claims-bar');
+          if (bar) bar.style.width = '100%';
+        });
+      });
+    }
+
     SplitifyAPI.submitClaimsByBillId({
       billId: state.billId,
       userName: state.userName,
@@ -469,13 +547,37 @@
       state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
       state.mySelectionOriginal = state.mySelection.slice();
       state.summaryCache = null;
-      updateClaimStatus('Successfully Recorded');
-      setTimeout(function () { updateClaimStatus(''); }, 3000);
-      // Refresh slot visuals immediately so the Claim tab reflects the server response.
       refreshClaimItems();
+      var remaining = Math.max(0, PROGRESS_MS - (Date.now() - tStart));
+      setTimeout(function () {
+        resetSubmitProgress();
+        updateClaimStatus('');
+        showClaimsSuccessOverlay();
+      }, remaining);
     }).catch(function (err) {
+      resetSubmitProgress();
       updateClaimStatus(err.message || String(err), true);
     });
+  }
+
+  function resetSubmitProgress() {
+    var btn = document.getElementById('submit-claims-btn');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.classList.remove('submit-btn--progress');
+    btn.textContent = 'Submit My Claims';
+  }
+
+  function showClaimsSuccessOverlay() {
+    var overlay = document.createElement('div');
+    overlay.className = 'claims-success-overlay';
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.innerHTML = '<span class="claims-success-overlay__text">Claims recorded!</span>';
+    document.body.appendChild(overlay);
+    setTimeout(function () {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }, 1500);
   }
 
   function updateClaimStatus(text, isErr) {
@@ -483,6 +585,75 @@
     if (!el) return;
     el.textContent = text;
     el.className = 'status' + (isErr ? ' status--error' : '');
+  }
+
+  function buildSummaryFromState() {
+    var bill = state.bill;
+    var claims = state.claims;
+    var items = bill.items || [];
+    var totalPaid = bill.metadata.totalPaid != null ? bill.metadata.totalPaid : 0;
+
+    var claimMap = {};
+    for (var c = 0; c < claims.length; c++) {
+      claimMap[claims[c].rowIndex + '_' + claims[c].unitIndex] = claims[c].userName;
+    }
+
+    var billTotal = 0;
+    for (var x = 0; x < items.length; x++) billTotal += items[x].total_price || 0;
+    if (totalPaid == null) totalPaid = billTotal;
+    var tip = Math.max(0, totalPaid - billTotal);
+    var tipPercent = billTotal > 0 ? (tip / billTotal) * 100 : 0;
+
+    var byUserSlots = {};
+    var byItem = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var claimed = 0;
+      var itemClaimByUser = {};
+      for (var u = 0; u < it.quantity; u++) {
+        var key = it.rowIndex + '_' + u;
+        var name = claimMap[key];
+        if (!name) continue;
+        claimed++;
+        itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
+        if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
+        byUserSlots[name].subtotal += it.unit_price || 0;
+      }
+      var claimsByUser = [];
+      var itemUserNames = Object.keys(itemClaimByUser).sort();
+      for (var iu = 0; iu < itemUserNames.length; iu++) {
+        claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
+      }
+      byItem.push({
+        description: it.description,
+        category:    it.category,
+        quantity:    it.quantity,
+        claimed:     claimed,
+        unclaimed:   Math.max(0, it.quantity - claimed),
+        unitPrice:   it.unit_price || 0,
+        totalPrice:  it.total_price || 0,
+        claimsByUser: claimsByUser
+      });
+    }
+
+    var byUser = [];
+    var names = Object.keys(byUserSlots).sort();
+    for (var n = 0; n < names.length; n++) {
+      var nm = names[n];
+      var sub = byUserSlots[nm].subtotal;
+      var tipShare = billTotal > 0 ? tip * (sub / billTotal) : 0;
+      byUser.push({ userName: nm, subtotal: sub, tipShare: tipShare, totalWithTip: sub + tipShare });
+    }
+
+    return {
+      billId:     bill.billId,
+      billTotal:  billTotal,
+      totalPaid:  totalPaid,
+      tipAmount:  tip,
+      tipPercent: tipPercent,
+      byUser:     byUser,
+      byItem:     byItem
+    };
   }
 
   function renderSummaryTab(mount) {
@@ -506,9 +677,18 @@
       SplitifySummary.render(document.getElementById('summary-mount'), state.summaryCache, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
       return;
     }
+    // When claims are loaded in state they come from the backend API (authoritative).
+    // Computing locally avoids showing stale data from the published CSV cache.
+    if (state.claimsLoaded && state.bill) {
+      var summary = buildSummaryFromState();
+      state.summaryCache = summary;
+      SplitifySummary.render(document.getElementById('summary-mount'), summary, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
+      return;
+    }
     SplitifyAPI.getBillSummaryById(state.billId).then(function (summary) {
       state.summaryCache = summary;
       SplitifySummary.render(document.getElementById('summary-mount'), summary, { viewMode: state.summaryView, onViewBill: openBillImageLightbox });
+      backgroundApiRefreshSummary();
     }).catch(function (err) {
       mount.innerHTML = '<p class="status status--error">' + escapeHtml(err.message || String(err)) + '</p>';
     });

@@ -116,15 +116,17 @@ function getBillById(billId) {
   var cImage = getColIndex(hMeta, 'BillImageId');
   var cOpen = getColIndex(hMeta, 'Open');
   var cTotalPaid = getColIndex(hMeta, 'TotalPaid');
+  var cVenueName = getColIndex(hMeta, 'VenueName');
   var billDate = formatDate(metaRow.row[cDate]);
   var imageId = normalizeDriveFileId(metaRow.row[cImage]);
   var openRaw = metaRow.row[cOpen];
   var open = openRaw === true || String(openRaw).toUpperCase() === 'TRUE';
   var totalPaid = parseFloat(metaRow.row[cTotalPaid]);
   if (isNaN(totalPaid)) totalPaid = null;
+  var venueName = cVenueName >= 0 ? String(metaRow.row[cVenueName] || '') : '';
 
   var data = billsSheet.getDataRange().getValues();
-  if (data.length < 2) return { billId: billId, billDate: billDate, items: [], metadata: { open: open, totalPaid: totalPaid, billImageId: imageId } };
+  if (data.length < 2) return { billId: billId, billDate: billDate, venueName: venueName, items: [], metadata: { open: open, totalPaid: totalPaid, billImageId: imageId } };
   var h = data[0];
   var cBillId = getColIndex(h, 'BillId');
   var cRow = getColIndex(h, 'RowIndex');
@@ -146,7 +148,7 @@ function getBillById(billId) {
       total_price: parseFloat(data[i][cTotal]) || 0
     });
   }
-  return { billId: billId, billDate: billDate, items: items, metadata: { open: open, totalPaid: totalPaid, billImageId: imageId } };
+  return { billId: billId, billDate: billDate, venueName: venueName, items: items, metadata: { open: open, totalPaid: totalPaid, billImageId: imageId } };
 }
 
 function getClaimsByBillId(billId) {
@@ -328,7 +330,7 @@ function analyzeBillImage(body) {
   if (!apiKey) throw new Error('GEMINI_API_KEY not set in script properties');
   var modelId = getActiveBillModelFromConfig_();
 
-  var prompt = 'Analyze this bill image and return ONLY JSON: {"billDate":"YYYY-MM-DD","items":[{"category":"Food|Fries|Drink","description":"...", "quantity":1,"unit_price":0,"total_price":0}]}.';
+  var prompt = 'Analyze this bill image and return ONLY JSON: {"venueName":"Name of the bar, restaurant or hostelry shown on the bill, or empty string if not visible","billDate":"YYYY-MM-DD","items":[{"category":"Food|Fries|Drink","description":"...","quantity":1,"unit_price":0,"total_price":0}]}.';
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
     contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }] }]
@@ -347,7 +349,7 @@ function analyzeBillImage(body) {
   var parsed = parseGeminiBillJson(text);
   var jobId = Utilities.getUuid();
   PropertiesService.getScriptProperties().setProperty('splitifyUpload_' + jobId, JSON.stringify(parsed));
-  return { jobId: jobId, billDate: parsed.billDate, billTotal: sumBillTotal(parsed.items), modelId: modelId };
+  return { jobId: jobId, billDate: parsed.billDate, venueName: parsed.venueName || '', billTotal: sumBillTotal(parsed.items), modelId: modelId };
 }
 
 function parseGeminiBillJson(text) {
@@ -401,7 +403,7 @@ function completeBillUpload(body) {
       total
     ]);
   }
-  metaSheet.appendRow([billId, analysis.billDate, imageId, true, '', new Date().toISOString()]);
+  metaSheet.appendRow([billId, analysis.billDate, imageId, true, '', new Date().toISOString(), String(analysis.venueName || '')]);
   PropertiesService.getScriptProperties().deleteProperty('splitifyUpload_' + jobId);
   return { billId: billId, billDate: analysis.billDate, billTotal: sumBillTotal(items) };
 }

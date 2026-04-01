@@ -49,6 +49,13 @@
     });
   }
 
+  // Always hits the Apps Script API directly — used for silent background refreshes
+  // where freshness matters and the published-CSV cache lag is unacceptable.
+  function requestGetDirect(action, params) {
+    var url = getApiUrl() + toQuery(Object.assign({}, params || {}, { action: action }));
+    return fetch(url).then(function (r) { return r.json(); }).then(unwrap);
+  }
+
   function requestPost(action, body) {
     var payload = Object.assign({}, body || {}, { action: action });
     requestStart(action);
@@ -83,6 +90,9 @@
     submitClaimsByBillId: function (payload) { return requestPost('submitClaimsByBillId', payload); },
     getConfigNames: function () { return requestGet('configNames', {}); },
     getProductIcons: function () { return requestGet('getProductIcons', {}); },
-    getActiveBillModel: function () { return requestGet('getActiveBillModel', {}); }
+    getActiveBillModel: function () { return requestGet('getActiveBillModel', {}); },
+    getQuips: function () { return requestGet('getQuips', {}); },
+    getClaimsByBillIdDirect: function (billId) { return requestGetDirect('getClaimsByBillId', { billId: billId }); },
+    getBillSummaryByIdDirect: function (billId) { return requestGetDirect('getBillSummaryById', { billId: billId }); }
   };
 })(typeof window !== 'undefined' ? window : this);
