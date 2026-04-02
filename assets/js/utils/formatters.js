@@ -12,8 +12,22 @@
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  function formatUploadDateDisplay(isoOrStr) {
+    if (!isoOrStr) return '';
+    var d = new Date(isoOrStr);
+    if (isNaN(d.getTime())) return String(isoOrStr);
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
+
   global.SplitifyFormatters = {
     formatMoney: formatMoney,
-    formatBillDateDisplay: formatBillDateDisplay
+    formatBillDateDisplay: formatBillDateDisplay,
+    formatUploadDateDisplay: formatUploadDateDisplay
   };
 })(typeof window !== 'undefined' ? window : this);

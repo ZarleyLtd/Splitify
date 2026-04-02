@@ -30,6 +30,7 @@ function doGet(e) {
     else if (action === 'configNames') out.data = getConfigNames();
     else if (action === 'getProductIcons') out.data = getProductIcons();
     else if (action === 'getActiveBillModel') out.data = getActiveBillModel();
+    else if (action === 'listBills') out.data = listBills();
     else throw new Error('Unknown or missing action');
   } catch (err) {
     out.error = err.message || String(err);
@@ -46,6 +47,7 @@ function doPost(e) {
     else if (action === 'completeBillUpload') out.data = completeBillUpload(body);
     else if (action === 'updateBillTotalPaid') out.data = updateBillTotalPaid(body);
     else if (action === 'submitClaimsByBillId') out.data = submitClaimsByBillId(body);
+    else if (action === 'deleteBillById') out.data = deleteBillById(body);
     else throw new Error('Unknown or missing action');
   } catch (err) {
     out.error = err.message || String(err);
@@ -100,6 +102,112 @@ function getMetaRowByBillId(metaSheet, billId) {
     }
   }
   return null;
+}
+
+function uploadSortKey_(v) {
+  if (v instanceof Date && !isNaN(v.getTime())) return v.getTime();
+  if (v == null || v === '') return 0;
+  var d = new Date(v);
+  if (!isNaN(d.getTime())) return d.getTime();
+  return 0;
+}
+
+function formatUploadIso_(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString();
+  var s = String(v).trim();
+  if (!s) return '';
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString();
+  return s;
+}
+
+function listBills() {
+  var ss = getSpreadsheet();
+  var metaSheet = ss.getSheetByName(SHEETS.BILL_META);
+  if (!metaSheet) throw new Error('BillMeta sheet not found');
+  var data = metaSheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var header = data[0];
+  var cBillId = getColIndex(header, 'BillId');
+  var cDate = getColIndex(header, 'BillDate');
+  var cVenue = getColIndex(header, 'VenueName');
+  var cCreated = getColIndex(header, 'CreatedAt');
+  if (cCreated < 0) cCreated = getColIndex(header, 'UploadedAt');
+  if (cBillId < 0 || cDate < 0) throw new Error('BillMeta missing BillId or BillDate');
+
+  var rows = [];
+  for (var i = 1; i < data.length; i++) {
+    var billId = String(data[i][cBillId] || '').trim();
+    if (!billId) continue;
+    var billDate = formatDate(data[i][cDate]);
+    var venueName = cVenue >= 0 ? String(data[i][cVenue] || '') : '';
+    var rawUpload = cCreated >= 0 ? data[i][cCreated] : '';
+    rows.push({
+      billId: billId,
+      venueName: venueName,
+      billDate: billDate,
+      uploadDate: formatUploadIso_(rawUpload),
+      _sort: uploadSortKey_(rawUpload)
+    });
+  }
+  rows.sort(function (a, b) {
+    return b._sort - a._sort;
+  });
+  var out = [];
+  for (var j = 0; j < rows.length; j++) {
+    out.push({
+      billId: rows[j].billId,
+      venueName: rows[j].venueName,
+      billDate: rows[j].billDate,
+      uploadDate: rows[j].uploadDate
+    });
+  }
+  return out;
+}
+
+function deleteSheetRowsForBillId_(sheet, billId) {
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return;
+  var h = data[0];
+  var cBill = getColIndex(h, 'BillId');
+  if (cBill < 0) return;
+  for (var d = data.length - 1; d >= 1; d--) {
+    if (String(data[d][cBill] || '').trim() === billId) {
+      sheet.deleteRow(d + 1);
+    }
+  }
+}
+
+function deleteBillById(body) {
+  var billId = String((body && body.billId) || '').trim();
+  if (!billId) throw new Error('Missing billId');
+  var ss = getSpreadsheet();
+  var metaSheet = ss.getSheetByName(SHEETS.BILL_META);
+  var billsSheet = ss.getSheetByName(SHEETS.BILLS);
+  var claimsSheet = ss.getSheetByName(SHEETS.CLAIMS);
+  if (!metaSheet || !billsSheet || !claimsSheet) throw new Error('Required sheet not found');
+
+  var metaRow = getMetaRowByBillId(metaSheet, billId);
+  if (!metaRow) throw new Error('Bill not found');
+  var cImage = getColIndex(metaRow.header, 'BillImageId');
+  var imageId = cImage >= 0 ? normalizeDriveFileId(metaRow.row[cImage]) : null;
+  if (imageId) {
+    try {
+      DriveApp.getFileById(imageId).setTrashed(true);
+    } catch (driveErr) {
+      // File missing or no access — still remove sheet rows
+    }
+  }
+
+  deleteSheetRowsForBillId_(claimsSheet, billId);
+  deleteSheetRowsForBillId_(billsSheet, billId);
+
+  var metaAgain = getMetaRowByBillId(metaSheet, billId);
+  if (metaAgain) {
+    metaSheet.deleteRow(metaAgain.rowNum);
+  }
+  return { ok: true };
 }
 
 function getBillById(billId) {

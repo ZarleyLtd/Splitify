@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Splitify Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div id="app" class="app app--admin">
+    <div id="admin-root"></div>
+  </div>
+  <script src="assets/js/config/sheets-config.js"></script>
+  <script src="assets/js/utils/working-indicator.js"></script>
+  <script src="assets/js/utils/api.js"></script>
+  <script src="assets/js/utils/formatters.js"></script>
+  <script src="assets/js/pages/admin.js"></script>
+  <script>
+    (function () {
+      if (typeof SplitifyAdminPage !== 'undefined') {
+        SplitifyAdminPage.init(document.getElementById('admin-root'));
+      }
+    })();
+  </script>
+</body>
+</html>

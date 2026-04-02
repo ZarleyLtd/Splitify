@@ -88,6 +88,8 @@
     getBillImageById: function (billId) { return requestGet('getBillImageById', { billId: billId }); },
     getBillSummaryById: function (billId) { return requestGet('getBillSummaryById', { billId: billId }); },
     submitClaimsByBillId: function (payload) { return requestPost('submitClaimsByBillId', payload); },
+    listBills: function () { return requestGet('listBills', {}); },
+    deleteBillById: function (payload) { return requestPost('deleteBillById', payload); },
     getConfigNames: function () { return requestGet('configNames', {}); },
     getProductIcons: function () { return requestGet('getProductIcons', {}); },
     getActiveBillModel: function () { return requestGet('getActiveBillModel', {}); },
