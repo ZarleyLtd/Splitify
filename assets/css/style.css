@@ -161,46 +161,47 @@ body {
 }
 .panel--wide { max-width: 920px; }
 
-/* Admin: Splitify left; bolt + God Mode centered under title (wrap width = max(title, subtitle)) */
-.admin-title-block {
-  display: inline-block;
-  width: fit-content;
-  max-width: 100%;
-  vertical-align: top;
-  margin-bottom: 16px;
-}
-.admin-title-block h1 {
-  margin-bottom: 8px;
-}
-.admin-god-mode-wrap {
+/* Admin: Splitify left; lightning + God Mode on same row, right */
+.admin-title-row {
   display: flex;
-  justify-content: center;
-  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.admin-title-row h1 {
   margin: 0;
+  flex-shrink: 0;
 }
 .admin-god-mode {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   margin: 0;
+  flex-shrink: 0;
 }
 .admin-god-mode__icon {
   color: #e8b923;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  flex-shrink: 0;
 }
 .admin-god-mode__icon svg {
   display: block;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
 }
 .admin-god-mode__label {
   margin: 0;
   font-family: "Caveat", cursive;
   font-weight: 700;
-  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-size: clamp(1.35rem, 3.5vw, 1.85rem);
   color: var(--accent-2);
   letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .admin-bill-list {
@@ -390,6 +391,13 @@ h1 { color: var(--accent); }
 .text-input--narrow { margin-bottom: 0; }
 .field-label { font-weight: 700; display: block; margin: 8px 0 6px; }
 .tip-stack { display: grid; gap: 8px; margin-bottom: 12px; }
+/* Verify step: larger Tip / Total labels and % readout; inputs unchanged */
+.verify-tip-stack > .field-label {
+  font-size: 1.2rem;
+}
+.verify-tip-stack .tip-pct {
+  font-size: 1.35rem;
+}
 .tip-inline {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

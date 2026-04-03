@@ -8,15 +8,13 @@
   function renderShell() {
     rootEl.innerHTML =
       '<main class="panel panel--wide">' +
-      '<div class="admin-title-block">' +
+      '<div class="admin-title-row">' +
       '<h1>Splitify</h1>' +
-      '<div class="admin-god-mode-wrap">' +
       '<div class="admin-god-mode">' +
       '<span class="admin-god-mode__icon">' +
       LIGHTNING_SVG +
       '</span>' +
       '<p class="admin-god-mode__label">God Mode</p>' +
-      '</div>' +
       '</div>' +
       '</div>' +
       '<p id="admin-status" class="status" style="display:none"></p>' +

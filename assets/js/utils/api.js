@@ -1,4 +1,17 @@
 (function (global) {
+  /**
+   * Request display mode (second arg on most SplitifyAPI methods):
+   * - foreground (default): full-screen working indicator; blocks interaction while pending.
+   * - quiet: no indicator; user can keep using the page (background saves, silent refresh, etc.).
+   * Alias: mode "background" is treated like "quiet".
+   */
+  var MODE = { FOREGROUND: 'foreground', QUIET: 'quiet', BACKGROUND: 'background' };
+
+  function isQuietMode(options) {
+    var m = options && options.mode;
+    return m === MODE.QUIET || m === MODE.BACKGROUND;
+  }
+
   function requestStart(action) {
     if (global.SplitifyWorking && global.SplitifyWorking.begin) {
       global.SplitifyWorking.begin('Working: ' + action + '...');
@@ -31,44 +44,54 @@
     return parts.length ? ('?' + parts.join('&')) : '';
   }
 
-  function requestGet(action, params) {
+  function requestGet(action, params, options) {
+    var quiet = isQuietMode(options);
     if (typeof SheetsRead !== 'undefined' && SheetsRead.isReadAction(action)) {
-      requestStart(action);
+      if (!quiet) requestStart(action);
       return SheetsRead.getReadResponse(Object.assign({}, params || {}, { action: action }))
-        .then(function (data) { requestEnd(); return data; },
-              function (err)  { requestEnd(); throw err; });
+        .then(function (data) { if (!quiet) requestEnd(); return data; },
+              function (err)  { if (!quiet) requestEnd(); throw err; });
     }
     var url = getApiUrl() + toQuery(Object.assign({}, params || {}, { action: action }));
-    requestStart(action);
+    if (!quiet) requestStart(action);
     return fetch(url).then(function (r) { return r.json(); }).then(unwrap).then(function (data) {
-      requestEnd();
+      if (!quiet) requestEnd();
       return data;
     }, function (err) {
-      requestEnd();
+      if (!quiet) requestEnd();
       throw err;
     });
   }
 
-  // Always hits the Apps Script API directly — used for silent background refreshes
-  // where freshness matters and the published-CSV cache lag is unacceptable.
-  function requestGetDirect(action, params) {
+  // Hits Apps Script directly. Default: no working indicator (same as historical behavior).
+  // Pass { mode: MODE.FOREGROUND } to show the overlay (e.g. long direct refresh).
+  function requestGetDirect(action, params, options) {
+    var showWorking = options && options.mode === MODE.FOREGROUND;
     var url = getApiUrl() + toQuery(Object.assign({}, params || {}, { action: action }));
-    return fetch(url).then(function (r) { return r.json(); }).then(unwrap);
+    if (showWorking) requestStart(action);
+    return fetch(url).then(function (r) { return r.json(); }).then(unwrap).then(function (data) {
+      if (showWorking) requestEnd();
+      return data;
+    }, function (err) {
+      if (showWorking) requestEnd();
+      throw err;
+    });
   }
 
-  function requestPost(action, body) {
+  function requestPost(action, body, options) {
+    var quiet = isQuietMode(options);
     var payload = Object.assign({}, body || {}, { action: action });
-    requestStart(action);
+    if (!quiet) requestStart(action);
     return fetch(getApiUrl(), {
       method: 'POST',
       // Use a simple content type to avoid CORS preflight with Apps Script web apps.
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); }).then(unwrap).then(function (data) {
-      requestEnd();
+      if (!quiet) requestEnd();
       return data;
     }, function (err) {
-      requestEnd();
+      if (!quiet) requestEnd();
       throw err;
     });
   }
@@ -80,21 +103,26 @@
   }
 
   global.SplitifyAPI = {
-    analyzeBillImage: function (payload) { return requestPost('analyzeBillImage', payload); },
-    completeBillUpload: function (payload) { return requestPost('completeBillUpload', payload); },
-    updateBillTotalPaid: function (payload) { return requestPost('updateBillTotalPaid', payload); },
-    getBillById: function (billId) { return requestGet('getBillById', { billId: billId }); },
-    getClaimsByBillId: function (billId) { return requestGet('getClaimsByBillId', { billId: billId }); },
-    getBillImageById: function (billId) { return requestGet('getBillImageById', { billId: billId }); },
-    getBillSummaryById: function (billId) { return requestGet('getBillSummaryById', { billId: billId }); },
-    submitClaimsByBillId: function (payload) { return requestPost('submitClaimsByBillId', payload); },
-    listBills: function () { return requestGet('listBills', {}); },
-    deleteBillById: function (payload) { return requestPost('deleteBillById', payload); },
-    getConfigNames: function () { return requestGet('configNames', {}); },
-    getProductIcons: function () { return requestGet('getProductIcons', {}); },
-    getActiveBillModel: function () { return requestGet('getActiveBillModel', {}); },
-    getQuips: function () { return requestGet('getQuips', {}); },
-    getClaimsByBillIdDirect: function (billId) { return requestGetDirect('getClaimsByBillId', { billId: billId }); },
-    getBillSummaryByIdDirect: function (billId) { return requestGetDirect('getBillSummaryById', { billId: billId }); }
+    MODE: MODE,
+    analyzeBillImage: function (payload, options) { return requestPost('analyzeBillImage', payload, options); },
+    completeBillUpload: function (payload, options) { return requestPost('completeBillUpload', payload, options); },
+    updateBillTotalPaid: function (payload, options) { return requestPost('updateBillTotalPaid', payload, options); },
+    getBillById: function (billId, options) { return requestGet('getBillById', { billId: billId }, options); },
+    getClaimsByBillId: function (billId, options) { return requestGet('getClaimsByBillId', { billId: billId }, options); },
+    getBillImageById: function (billId, options) { return requestGet('getBillImageById', { billId: billId }, options); },
+    getBillSummaryById: function (billId, options) { return requestGet('getBillSummaryById', { billId: billId }, options); },
+    submitClaimsByBillId: function (payload, options) { return requestPost('submitClaimsByBillId', payload, options); },
+    listBills: function (options) { return requestGet('listBills', {}, options); },
+    deleteBillById: function (payload, options) { return requestPost('deleteBillById', payload, options); },
+    getConfigNames: function (options) { return requestGet('configNames', {}, options); },
+    getProductIcons: function (options) { return requestGet('getProductIcons', {}, options); },
+    getActiveBillModel: function (options) { return requestGet('getActiveBillModel', {}, options); },
+    getQuips: function (options) { return requestGet('getQuips', {}, options); },
+    getClaimsByBillIdDirect: function (billId, options) {
+      return requestGetDirect('getClaimsByBillId', { billId: billId }, options);
+    },
+    getBillSummaryByIdDirect: function (billId, options) {
+      return requestGetDirect('getBillSummaryById', { billId: billId }, options);
+    }
   };
 })(typeof window !== 'undefined' ? window : this);

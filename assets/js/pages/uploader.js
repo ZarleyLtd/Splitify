@@ -1,6 +1,13 @@
 (function (global) {
   var rootEl;
-  var uploadState = { imageData: null, draft: null };
+  var uploadState = {
+    imageData: null,
+    draft: null,
+    bgSavePromise: null,
+    bgBillId: null,
+    verifyBillTotal: null,
+    finalizeInProgress: false
+  };
 
   function roundMoney2(n) {
     return Math.round(n * 100) / 100;
@@ -107,9 +114,9 @@
     rootEl.innerHTML =
       '<main class="panel">' +
       '<h1>Splitify</h1>' +
-      '<p class="muted">Upload a bill image to create a shareable claim link.</p>' +
+      '<p class="muted">Scan a bill image to create a link for your friends</p>' +
       '<div class="uploader-upload-actions">' +
-      '<button type="button" id="upload-bill-trigger" class="btn" aria-expanded="false" aria-controls="uploader-source-picker">Upload Bill Image</button>' +
+      '<button type="button" id="upload-bill-trigger" class="btn" aria-expanded="false" aria-controls="uploader-source-picker">Scan Bill Image</button>' +
       '<div id="uploader-source-picker" class="uploader-source-picker" hidden>' +
       '<p class="uploader-source-picker__hint">Take a photo or choose from gallery or files.</p>' +
       '<div class="uploader-upload-buttons">' +
@@ -152,6 +159,10 @@
     var file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
+    uploadState.bgSavePromise = null;
+    uploadState.bgBillId = null;
+    uploadState.verifyBillTotal = null;
+    uploadState.finalizeInProgress = false;
     closeUploaderSourcePicker();
     setStatus('Preparing image...');
     var compressPromise = SplitifyImageCompress.compressBillImage(file);
@@ -193,7 +204,7 @@
       venueHtml +
       '<p>Bill date: <strong>' + SplitifyFormatters.formatBillDateDisplay(draft.billDate) + '</strong></p>' +
       '<p>Detected total: <strong>€ ' + SplitifyFormatters.formatMoney(billTotal) + '</strong></p>' +
-      '<div class="tip-stack">' +
+      '<div class="tip-stack verify-tip-stack">' +
       '<label class="field-label" for="tip-amount">Tip (EUR)</label>' +
       '<div class="tip-inline tip-inline--narrow">' +
       '<input id="tip-amount" class="text-input text-input--narrow verify-money-input" value="" inputmode="decimal">' +
@@ -346,28 +357,90 @@
       flashStepDriver(step.driver);
     });
 
-    document.getElementById('finalize-btn').addEventListener('click', onFinalize);
+    uploadState.verifyBillTotal = billTotal;
+    uploadState.bgBillId = null;
+    var quiet = { mode: SplitifyAPI.MODE.QUIET };
+    uploadState.bgSavePromise = SplitifyAPI.completeBillUpload(
+      {
+        jobId: uploadState.draft.jobId,
+        base64: uploadState.imageData.base64,
+        mimeType: uploadState.imageData.mimeType
+      },
+      quiet
+    ).then(function (res) {
+      uploadState.bgBillId = res.billId;
+      return SplitifyAPI.updateBillTotalPaid({ billId: res.billId, totalPaid: billTotal }, quiet);
+    });
+
+    document.getElementById('finalize-btn').addEventListener('click', function () {
+      finalizeVerifyStep(billTotal);
+    });
     setStatus('Review total paid, then finalize.');
   }
 
-  function onFinalize() {
+  function finalizeVerifyStep(billTotal) {
+    if (uploadState.finalizeInProgress) return;
     var input = document.getElementById('total-paid');
     var paid = parseFloat(String(input.value || '').replace(',', '.'));
     if (isNaN(paid) || paid < 0) {
       setStatus('Enter a valid total paid amount.', true);
       return;
     }
+    if (paid < roundMoney2(billTotal) - 1e-6) {
+      setStatus('Total paid cannot be less than bill total.', true);
+      return;
+    }
+
+    uploadState.finalizeInProgress = true;
     setStatus('Saving bill...');
-    SplitifyAPI.completeBillUpload({
-      jobId: uploadState.draft.jobId,
-      base64: uploadState.imageData.base64,
-      mimeType: uploadState.imageData.mimeType
-    })
+
+    var fg = { mode: SplitifyAPI.MODE.FOREGROUND };
+
+    function applyFinalTotal(billId) {
+      return SplitifyAPI.updateBillTotalPaid({ billId: billId, totalPaid: paid }, fg).then(function () {
+        return { billId: billId };
+      });
+    }
+
+    function fallbackFullSave() {
+      return SplitifyAPI.completeBillUpload(
+        {
+          jobId: uploadState.draft.jobId,
+          base64: uploadState.imageData.base64,
+          mimeType: uploadState.imageData.mimeType
+        },
+        fg
+      ).then(function (res) {
+        uploadState.bgBillId = res.billId;
+        return applyFinalTotal(res.billId);
+      });
+    }
+
+    var bgPromise = uploadState.bgSavePromise;
+    var chain;
+    if (bgPromise) {
+      chain = bgPromise.then(
+        function () {
+          return applyFinalTotal(uploadState.bgBillId);
+        },
+        function () {
+          if (uploadState.bgBillId) {
+            return applyFinalTotal(uploadState.bgBillId);
+          }
+          return fallbackFullSave();
+        }
+      );
+    } else {
+      chain = fallbackFullSave();
+    }
+
+    chain
       .then(function (res) {
-        return SplitifyAPI.updateBillTotalPaid({ billId: res.billId, totalPaid: paid }).then(function () { return res; });
+        uploadState.finalizeInProgress = false;
+        showShareLink(res);
       })
-      .then(showShareLink)
       .catch(function (err) {
+        uploadState.finalizeInProgress = false;
         setStatus(err.message || String(err), true);
       });
   }
