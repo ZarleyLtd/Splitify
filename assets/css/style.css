@@ -427,6 +427,60 @@ h1 { color: var(--accent); }
   width: 180px;
   margin-bottom: 0;
 }
+
+/* Uploader verify: venue + date row; finalize / scan-again row */
+.uploader-verify-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+.uploader-verify-venue {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uploader-verify-bill-date {
+  flex-shrink: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.verify-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+.verify-actions-row .btn {
+  flex: 1 1 auto;
+  min-width: min(160px, 100%);
+  text-align: center;
+}
+.verify-actions-row .btn--secondary {
+  flex: 1 1 auto;
+}
+.uploader-bill-created-title {
+  margin: 8px 0 6px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: Georgia, "Times New Roman", serif;
+}
+#verify-lower .share-link {
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
 .step-btn {
   height: 42px;
   border: 1px solid rgba(0, 0, 0, 0.2);
@@ -441,9 +495,14 @@ h1 { color: var(--accent); }
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* Thicker look without changing font-weight (avoids verify row reflow / flicker) */
 .flash-bold {
-  font-weight: 800 !important;
-  transition: font-weight 0.2s ease;
+  text-shadow:
+    0.5px 0 0 currentColor,
+    -0.5px 0 0 currentColor,
+    0 0.35px 0 currentColor,
+    0 -0.35px 0 currentColor;
+  transition: text-shadow 0.2s ease;
 }
 .share-link {
   display: block;

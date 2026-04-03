@@ -6,7 +6,11 @@
     bgSavePromise: null,
     bgBillId: null,
     verifyBillTotal: null,
-    finalizeInProgress: false
+    finalizeInProgress: false,
+    scanAgainInProgress: false,
+    bgUploadSession: 0,
+    /** True after Confirm succeeded; abandoning UI must not delete the bill from the sheet. */
+    shareLinkCommitted: false
   };
 
   function roundMoney2(n) {
@@ -24,8 +28,21 @@
     return (typeof n === 'number' && !isNaN(n) ? n : 0).toFixed(2);
   }
 
+  var cachedBillPctMults = null;
+  /** B×1.05, B×1.10, … through B×3.00 (5% steps, up to 200% over bill). */
+  function billTotalPctMultipliers() {
+    if (cachedBillPctMults) return cachedBillPctMults;
+    cachedBillPctMults = [];
+    for (var k = 0; ; k++) {
+      var m = Math.round((1.05 + k * 0.05) * 100) / 100;
+      if (m > 3.001) break;
+      cachedBillPctMults.push(m);
+    }
+    return cachedBillPctMults;
+  }
+
   // Next total paid when pressing + : smallest strictly above P0 among
-  // tip-€5, 5/10/15%, and total-€5 milestones.
+  // tip-€5, percent-of-bill (5% steps from +5% to +200%), and total-€5 milestones.
   function totalPaidNextStepUp(P0, B) {
     var Bc = Math.round(B * 100);
     var P0c = Math.round(P0 * 100);
@@ -36,9 +53,9 @@
     var tipNext = Math.floor(T0c / 500) * 500 + 500;
     entries.push({ c: Bc + tipNext, pri: 0, driver: 'tip' });
 
-    var mults = [1.05, 1.1, 1.15];
-    for (var i = 0; i < mults.length; i++) {
-      var pc = Math.round(B * mults[i] * 100);
+    var multsUp = billTotalPctMultipliers();
+    for (var i = 0; i < multsUp.length; i++) {
+      var pc = Math.round(B * multsUp[i] * 100);
       if (pc > P0c) entries.push({ c: pc, pri: 1, driver: 'pct' });
     }
 
@@ -72,9 +89,9 @@
       if (tipPrev >= 0) entries.push({ c: Bc + tipPrev, pri: 0, driver: 'tip' });
     }
 
-    var mults = [1.05, 1.1, 1.15];
-    for (var i = 0; i < mults.length; i++) {
-      var pc = Math.round(B * mults[i] * 100);
+    var multsDown = billTotalPctMultipliers();
+    for (var i = 0; i < multsDown.length; i++) {
+      var pc = Math.round(B * multsDown[i] * 100);
       if (pc < P0c && pc >= Bc) entries.push({ c: pc, pri: 1, driver: 'pct' });
     }
 
@@ -102,6 +119,55 @@
     var trigger = document.getElementById('upload-bill-trigger');
     if (picker) picker.setAttribute('hidden', '');
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function isVerifySectionShowing() {
+    var verifyBox = document.getElementById('verify-box');
+    return !!(verifyBox && verifyBox.querySelector('.card'));
+  }
+
+  /** Clear verify UI, discard draft client state, delete draft bill in background (quiet), open source picker. */
+  function abandonVerifyAndOpenPicker() {
+    var quiet = { mode: SplitifyAPI.MODE.QUIET };
+    var shouldDeleteDraft = !uploadState.shareLinkCommitted;
+    var idToDelete = shouldDeleteDraft ? uploadState.bgBillId : null;
+    var savedPromise = shouldDeleteDraft ? uploadState.bgSavePromise : null;
+
+    uploadState.bgUploadSession = (uploadState.bgUploadSession || 0) + 1;
+    uploadState.bgSavePromise = null;
+    uploadState.bgBillId = null;
+    uploadState.verifyBillTotal = null;
+    uploadState.finalizeInProgress = false;
+    uploadState.draft = null;
+    uploadState.imageData = null;
+    uploadState.shareLinkCommitted = false;
+
+    var verifyBox = document.getElementById('verify-box');
+    if (verifyBox) verifyBox.innerHTML = '';
+    setStatus('');
+    var picker = document.getElementById('uploader-source-picker');
+    var trigger = document.getElementById('upload-bill-trigger');
+    if (picker) picker.removeAttribute('hidden');
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+
+    if (!shouldDeleteDraft) return;
+
+    function deleteQuiet(billId) {
+      if (!billId) return;
+      SplitifyAPI.deleteBillById({ billId: billId }, quiet).catch(function () {});
+    }
+    if (idToDelete) {
+      deleteQuiet(idToDelete);
+    }
+    Promise.resolve(savedPromise)
+      .catch(function () {
+        return null;
+      })
+      .then(function (upd) {
+        if (idToDelete) return;
+        var id = upd && upd.billId ? upd.billId : null;
+        if (id) deleteQuiet(id);
+      });
   }
 
   function render() {
@@ -135,6 +201,11 @@
       '<p id="uploader-caption" class="uploader-cartoon-caption"></p>';
 
     document.getElementById('upload-bill-trigger').addEventListener('click', function () {
+      if (isVerifySectionShowing()) {
+        if (uploadState.finalizeInProgress) return;
+        abandonVerifyAndOpenPicker();
+        return;
+      }
       var picker = document.getElementById('uploader-source-picker');
       if (!picker) return;
       var willOpen = picker.hasAttribute('hidden');
@@ -163,6 +234,8 @@
     uploadState.bgBillId = null;
     uploadState.verifyBillTotal = null;
     uploadState.finalizeInProgress = false;
+    uploadState.scanAgainInProgress = false;
+    uploadState.shareLinkCommitted = false;
     closeUploaderSourcePicker();
     setStatus('Preparing image...');
     var compressPromise = SplitifyImageCompress.compressBillImage(file);
@@ -192,18 +265,21 @@
   }
 
   function renderVerification(draft) {
+    uploadState.shareLinkCommitted = false;
     var el = document.getElementById('verify-box');
     if (!el) return;
     var billTotal = parseFloat(draft.billTotal) || 0;
-    var venueHtml = draft.venueName
-      ? '<p>Venue: <strong>' + escapeHtml(draft.venueName) + '</strong></p>'
-      : '';
+    var venueText = draft.venueName ? escapeHtml(draft.venueName) : '(No venue)';
+    var dateText = SplitifyFormatters.formatBillDateDisplay(draft.billDate) || '—';
     el.innerHTML =
       '<div class="card">' +
       '<h2>Verify</h2>' +
-      venueHtml +
-      '<p>Bill date: <strong>' + SplitifyFormatters.formatBillDateDisplay(draft.billDate) + '</strong></p>' +
+      '<div class="uploader-verify-meta-row">' +
+      '<span class="uploader-verify-venue">' + venueText + '</span>' +
+      '<span class="uploader-verify-bill-date">' + dateText + '</span>' +
+      '</div>' +
       '<p>Detected total: <strong>€ ' + SplitifyFormatters.formatMoney(billTotal) + '</strong></p>' +
+      '<div id="verify-lower">' +
       '<div class="tip-stack verify-tip-stack">' +
       '<label class="field-label" for="tip-amount">Tip (EUR)</label>' +
       '<div class="tip-inline tip-inline--narrow">' +
@@ -217,9 +293,12 @@
       '<button type="button" class="step-btn" id="total-plus" aria-label="Increase total paid">+</button>' +
       '</div>' +
       '</div>' +
-      '<button id="finalize-btn" class="btn">Finalize And Create Share Link</button>' +
+      '<div class="verify-actions-row">' +
+      '<button type="button" id="finalize-btn" class="btn">Confirm</button>' +
+      '<button type="button" id="scan-again-btn" class="btn btn--secondary">Scan again</button>' +
       '</div>' +
-      '<div id="share-box"></div>';
+      '</div>' +
+      '</div>';
 
     var tipInput = document.getElementById('tip-amount');
     var totalInput = document.getElementById('total-paid');
@@ -359,6 +438,8 @@
 
     uploadState.verifyBillTotal = billTotal;
     uploadState.bgBillId = null;
+    uploadState.bgUploadSession = (uploadState.bgUploadSession || 0) + 1;
+    var bgSession = uploadState.bgUploadSession;
     var quiet = { mode: SplitifyAPI.MODE.QUIET };
     uploadState.bgSavePromise = SplitifyAPI.completeBillUpload(
       {
@@ -367,15 +448,39 @@
         mimeType: uploadState.imageData.mimeType
       },
       quiet
-    ).then(function (res) {
-      uploadState.bgBillId = res.billId;
-      return SplitifyAPI.updateBillTotalPaid({ billId: res.billId, totalPaid: billTotal }, quiet);
-    });
+    )
+      .then(function (res) {
+        if (bgSession !== uploadState.bgUploadSession) {
+          if (res && res.billId) {
+            SplitifyAPI.deleteBillById({ billId: res.billId }, quiet).catch(function () {});
+          }
+          return null;
+        }
+        uploadState.bgBillId = res.billId;
+        return SplitifyAPI.updateBillTotalPaid({ billId: res.billId, totalPaid: billTotal }, quiet);
+      })
+      .then(function (upd) {
+        if (bgSession !== uploadState.bgUploadSession) {
+          uploadState.bgBillId = null;
+          return null;
+        }
+        return upd;
+      });
 
     document.getElementById('finalize-btn').addEventListener('click', function () {
       finalizeVerifyStep(billTotal);
     });
+    document.getElementById('scan-again-btn').addEventListener('click', function () {
+      onScanAgain();
+    });
     setStatus('Review total paid, then finalize.');
+  }
+
+  function onScanAgain() {
+    if (uploadState.finalizeInProgress || uploadState.scanAgainInProgress) return;
+    uploadState.scanAgainInProgress = true;
+    abandonVerifyAndOpenPicker();
+    uploadState.scanAgainInProgress = false;
   }
 
   function finalizeVerifyStep(billTotal) {
@@ -447,26 +552,28 @@
 
   function showShareLink(res) {
     var shareUrl = window.location.origin + window.location.pathname.replace(/index\.html$/i, '') + 'bill.html?billId=' + encodeURIComponent(res.billId);
-    var box = document.getElementById('share-box');
-    box.innerHTML =
-      '<div class="card">' +
-      '<h2>Bill Created</h2>' +
-      '<p>Share this link with friends to claim items.</p>' +
+    var lower = document.getElementById('verify-lower');
+    if (!lower) return;
+    lower.innerHTML =
+      '<h3 class="uploader-bill-created-title">Bill Created</h3>' +
+      '<p class="muted">Share this link with friends to claim items.</p>' +
       '<a href="' + shareUrl + '" class="share-link">' + shareUrl + '</a>' +
-      '<div class="button-row">' +
-      '<button id="copy-link-btn" class="btn btn--secondary">Copy Link</button>' +
+      '<div class="verify-actions-row">' +
+      '<button type="button" id="copy-link-btn" class="btn btn--secondary">Copy Link</button>' +
       '<a href="' + shareUrl + '" class="btn">Open Link</a>' +
-      '</div>' +
       '</div>';
     var copyBtn = document.getElementById('copy-link-btn');
-    copyBtn.addEventListener('click', function () {
-      navigator.clipboard.writeText(shareUrl).then(function () {
-        copyBtn.textContent = 'Copied';
-      }).catch(function () {
-        copyBtn.textContent = 'Copy failed';
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        navigator.clipboard.writeText(shareUrl).then(function () {
+          copyBtn.textContent = 'Copied';
+        }).catch(function () {
+          copyBtn.textContent = 'Copy failed';
+        });
       });
-    });
+    }
     navigator.clipboard.writeText(shareUrl).catch(function () {});
+    uploadState.shareLinkCommitted = true;
     setStatus('Bill saved and share link ready.');
   }
 
