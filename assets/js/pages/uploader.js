@@ -182,7 +182,11 @@
       '<h1>Splitify</h1>' +
       '<p class="muted">Scan a bill image to create a link for your friends</p>' +
       '<div class="uploader-upload-actions">' +
+      '<div class="uploader-scan-row">' +
       '<button type="button" id="upload-bill-trigger" class="btn" aria-expanded="false" aria-controls="uploader-source-picker">Scan Bill Image</button>' +
+      '<button type="button" class="help-strip-trigger" id="help-strip-btn" aria-haspopup="dialog" aria-controls="help-strip-dialog" aria-expanded="false" aria-label="How it works — open help" title="How it works">' +
+      '<span class="help-strip-trigger__icon" aria-hidden="true">?</span></button>' +
+      '</div>' +
       '<div id="uploader-source-picker" class="uploader-source-picker" hidden>' +
       '<p class="uploader-source-picker__hint">Take a photo or choose from gallery or files.</p>' +
       '<div class="uploader-upload-buttons">' +

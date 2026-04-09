@@ -13,6 +13,33 @@
   <div id="app" class="app app--uploader">
     <div id="uploader-root"></div>
   </div>
+
+  <div id="help-strip-backdrop" class="help-strip-backdrop" hidden aria-hidden="true"></div>
+  <dialog class="help-strip-dialog" id="help-strip-dialog" aria-labelledby="help-strip-title">
+    <div class="help-strip-dialog__header">
+      <h2 id="help-strip-title" class="help-strip-dialog__title">How it works</h2>
+      <button type="button" class="help-strip-close" aria-label="Close help">&times;</button>
+    </div>
+    <div class="help-strip-scroll">
+      <figure class="help-strip-panel">
+        <img class="help-strip-panel__img" src="assets/images/ggi_F1.png" alt="" loading="lazy" decoding="async">
+        <figcaption class="help-strip-panel__caption">Larry scans the bill image with his phone ...</figcaption>
+      </figure>
+      <figure class="help-strip-panel">
+        <img class="help-strip-panel__img" src="assets/images/ggi_F2.png" alt="" loading="lazy" decoding="async">
+        <figcaption class="help-strip-panel__caption">Larry then verifies the AI scan and shares the link with his friends</figcaption>
+      </figure>
+      <figure class="help-strip-panel">
+        <img class="help-strip-panel__img" src="assets/images/ggi_F3.png" alt="" loading="lazy" decoding="async">
+        <figcaption class="help-strip-panel__caption">Each of the group confirm the items they consumed</figcaption>
+      </figure>
+      <figure class="help-strip-panel">
+        <img class="help-strip-panel__img" src="assets/images/ggi_F4.png" alt="" loading="lazy" decoding="async">
+        <figcaption class="help-strip-panel__caption">Done! Each friend can see the full person split on the 'By User' summary</figcaption>
+      </figure>
+    </div>
+  </dialog>
+
   <script src="assets/js/config/sheets-config.js"></script>
   <script src="assets/js/utils/sheets-read.js"></script>
   <script src="assets/js/utils/working-indicator.js"></script>
@@ -25,6 +52,108 @@
     (function () {
       if (typeof SplitifyUploaderPage !== 'undefined') {
         SplitifyUploaderPage.init(document.getElementById('uploader-root'));
+      }
+    })();
+    (function () {
+      var dlg = document.getElementById('help-strip-dialog');
+      var backdrop = document.getElementById('help-strip-backdrop');
+      if (!dlg || !backdrop || typeof dlg.show !== 'function') return;
+      var closeBtn = dlg.querySelector('.help-strip-close');
+      var tracking = false;
+
+      function positionHelpDialog() {
+        var panel = document.querySelector('#uploader-root main.panel');
+        if (!panel) return;
+        var r = panel.getBoundingClientRect();
+        var gap = 10;
+        var pad = 12;
+        var top = Math.round(r.bottom + gap);
+        var w = r.width;
+        var left = Math.round(r.left);
+        if (left + w > window.innerWidth - pad) {
+          left = Math.max(pad, Math.round(window.innerWidth - pad - w));
+        }
+        if (left < pad) left = pad;
+        var maxH = Math.max(180, window.innerHeight - top - pad);
+        dlg.style.position = 'fixed';
+        dlg.style.margin = '0';
+        dlg.style.top = top + 'px';
+        dlg.style.left = left + 'px';
+        dlg.style.width = w + 'px';
+        dlg.style.maxHeight = maxH + 'px';
+      }
+
+      function onViewportChange() {
+        if (!dlg.open) return;
+        positionHelpDialog();
+      }
+
+      function startTracking() {
+        if (tracking) return;
+        tracking = true;
+        window.addEventListener('resize', onViewportChange);
+        window.addEventListener('scroll', onViewportChange, true);
+      }
+
+      function stopTracking() {
+        if (!tracking) return;
+        tracking = false;
+        window.removeEventListener('resize', onViewportChange);
+        window.removeEventListener('scroll', onViewportChange, true);
+      }
+
+      function setHelpOpenUi(isOpen) {
+        var btn = document.getElementById('help-strip-btn');
+        if (btn) btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (isOpen) {
+          backdrop.removeAttribute('hidden');
+          backdrop.setAttribute('aria-hidden', 'false');
+        } else {
+          backdrop.setAttribute('hidden', '');
+          backdrop.setAttribute('aria-hidden', 'true');
+        }
+      }
+
+      function openHelp() {
+        setHelpOpenUi(true);
+        positionHelpDialog();
+        dlg.show();
+        positionHelpDialog();
+        startTracking();
+      }
+
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+        if (t.closest('#help-strip-btn')) {
+          e.preventDefault();
+          if (dlg.open) {
+            dlg.close();
+            return;
+          }
+          openHelp();
+          return;
+        }
+        if (t.closest('#help-strip-backdrop')) {
+          e.preventDefault();
+          dlg.close();
+        }
+      });
+
+      dlg.addEventListener('close', function () {
+        setHelpOpenUi(false);
+        stopTracking();
+      });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || !dlg.open) return;
+        dlg.close();
+      });
+
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function () {
+          dlg.close();
+        });
       }
     })();
   </script>
