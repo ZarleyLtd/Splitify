@@ -377,11 +377,17 @@ function getProductIcons() {
   for (var i = 0; i < entries.length; i++) {
     var key = entries[i].key;
     if (!key) continue;
+    var image = String(entries[i].value || '').trim();
+    if (key.indexOf('productIconCategory:') === 0) {
+      var cat = String(key.substring('productIconCategory:'.length) || '').trim().toLowerCase();
+      if (!cat || !image) continue;
+      out.push({ product: cat, image: image, kind: 'category' });
+      continue;
+    }
     if (key.indexOf('productIcon:') !== 0) continue;
     var product = String(key.substring('productIcon:'.length) || '').trim();
-    var image = String(entries[i].value || '').trim();
     if (!product || !image) continue;
-    out.push({ product: product, image: image });
+    out.push({ product: product, image: image, kind: 'description' });
   }
   return out;
 }
@@ -438,7 +444,13 @@ function analyzeBillImage(body) {
   if (!apiKey) throw new Error('GEMINI_API_KEY not set in script properties');
   var modelId = getActiveBillModelFromConfig_();
 
-  var prompt = 'Analyze this bill image and return ONLY JSON: {"venueName":"Name of the bar, restaurant or hostelry shown on the bill, or empty string if not visible","billDate":"YYYY-MM-DD","items":[{"category":"Food|Fries|Drink","description":"...","quantity":1,"unit_price":0,"total_price":0}]}.';
+  var prompt =
+    'Analyze this bill image and return ONLY JSON with this shape: {"venueName":"Name of the bar, restaurant or hostelry shown on the bill, or empty string if not visible","billDate":"YYYY-MM-DD","items":[{"category":"<slug>","description":"...","quantity":1,"unit_price":0,"total_price":0}]}.' +
+    ' For each line item, category MUST be exactly one of these strings (pick the best fit; use subtypes whenever possible):' +
+    ' drink.beer, drink.wine, drink.spirit, drink.cold_soft, drink.hot, drink.other,' +
+    ' food.sandwich, food.wrap, food.burger, food.pizza, food.rice, food.curry, food.noodles, food.plate, food.salad, food.soup, food.fried_side, food.pastry, food.dessert, food.other,' +
+    ' or a top-level bucket only if no subtype fits: food, drink, other.' +
+    ' description must be the line text from the receipt (short, human-readable). No markdown, no commentary, JSON only.';
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
     contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }] }]
@@ -504,7 +516,7 @@ function completeBillUpload(body) {
       billId,
       analysis.billDate,
       i,
-      String(it.category || 'Drink'),
+      String(it.category || 'other'),
       String(it.description || ''),
       qty,
       unit,

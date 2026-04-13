@@ -19,6 +19,19 @@ body {
 
 .app { min-height: 100vh; position: relative; padding: 24px 16px; }
 
+.splitify-attribution {
+  margin: 2rem auto 0;
+  max-width: 40rem;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(47, 36, 26, 0.65);
+  text-align: center;
+}
+.splitify-attribution a {
+  color: rgba(47, 36, 26, 0.85);
+  text-decoration: underline;
+}
+
 /* Bill, uploader & admin: full-width mural background, soft fade into page bg at bottom */
 .app--bill::before,
 .app--uploader::before,

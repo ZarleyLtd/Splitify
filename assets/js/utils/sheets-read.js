@@ -134,11 +134,17 @@ var SheetsRead = (function () {
       var out = [];
       for (var i = 0; i < entries.length; i++) {
         var key = entries[i].key;
+        var image = entries[i].value.trim();
+        if (key.indexOf('productIconCategory:') === 0) {
+          var cat = key.substring('productIconCategory:'.length).trim().toLowerCase();
+          if (!cat || !image) continue;
+          out.push({ product: cat, image: image, kind: 'category' });
+          continue;
+        }
         if (key.indexOf('productIcon:') !== 0) continue;
         var product = key.substring('productIcon:'.length).trim();
-        var image = entries[i].value.trim();
         if (!product || !image) continue;
-        out.push({ product: product, image: image });
+        out.push({ product: product, image: image, kind: 'description' });
       }
       return out;
     });

@@ -1,0 +1,59 @@
+Bill icon SVGs — sources and licenses
+======================================
+
+Twemoji (Twitter / X), CC BY 4.0
+--------------------------------
+Most files are from Twemoji, fetched from:
+  https://github.com/twitter/twemoji/tree/master/assets/svg
+
+You must provide attribution for these (e.g. credits page or README):
+  "Twemoji by Twitter / X, CC BY 4.0"
+  https://creativecommons.org/licenses/by/4.0/
+  https://github.com/twitter/twemoji
+
+Slug filename          Twemoji file   Emoji / role
+---------------------  -------------  --------------------------------
+drink-beer.svg         1f37a.svg      beer mug
+drink-wine.svg         1f377.svg      wine glass
+drink-spirit.svg       1f943.svg      tumbler glass (spirits)
+drink-cold-soft.svg    1f964.svg      cup with straw (soft drinks, juice)
+drink-hot.svg          2615.svg       hot beverage (coffee / tea)
+drink-other.svg        1f378.svg      cocktail glass (generic drink)
+food-sandwich.svg      1f96a.svg      sandwich
+food-wrap.svg          1f32f.svg      stuffed flatbread (wrap / burrito)
+food-pizza.svg         1f355.svg      pizza slice
+food-rice.svg          1f35a.svg      cooked rice
+food-curry.svg         1f35b.svg      curry rice
+food-noodles.svg       1f35c.svg      steaming bowl (noodles / ramen)
+food-plate.svg         1f37d.svg      fork and knife with plate
+food-salad.svg         1f957.svg      green salad
+food-soup.svg          1f963.svg      bowl with spoon
+food-fried-side.svg    1f35f.svg      french fries
+food-pastry.svg        1f967.svg      pie
+food-dessert.svg       1f370.svg      shortcake / cake
+food-other.svg         1f374.svg      fork and knife (generic food)
+
+Public domain (no Twemoji attribution)
+--------------------------------------
+food-burger.svg
+  Wikimedia Commons — File:Hamburger.svg
+  Author: Tebu.an (Inkscape), public domain dedication
+  https://commons.wikimedia.org/wiki/File:Hamburger.svg
+
+Mapping to taxonomy slugs
+-------------------------
+Use filenames that match resolver keys after normalizing dot to hyphen:
+  drink.beer   -> drink-beer.svg
+  food.curry   -> food-curry.svg
+  food.fried_side -> food-fried-side.svg
+
+Default fallbacks (resolver)
+----------------------------
+default-food.svg   copy of food-other.svg (Twemoji)
+default-drink.svg  copy of drink-other.svg (Twemoji)
+default-other.svg  Twemoji 1f9fe.svg (receipt)
+
+Config sheet (optional overrides)
+---------------------------------
+productIcon:<substring>        Value = filename under assets/images/ (description substring match, longest wins)
+productIconCategory:<slug>     Value = filename; slug is lowercase exact category e.g. drink.beer
