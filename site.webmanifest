@@ -1,0 +1,16 @@
+{
+  "name": "Splitify Uploader",
+  "short_name": "Splitify",
+  "icons": [
+    {
+      "src": "assets/images/SplitifIcon.png",
+      "type": "image/png",
+      "sizes": "322x334"
+    }
+  ],
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "browser",
+  "background_color": "#f5f0e8",
+  "theme_color": "#8f4a3c"
+}
