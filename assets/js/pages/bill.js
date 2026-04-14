@@ -545,6 +545,8 @@
     }).then(function (res) {
       state.claims = res.claims || [];
       state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
+      // Server may remap fungible slots; align local selection with persisted claims.
+      state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
       state.mySelectionOriginal = state.mySelection.slice();
       state.summaryCache = null;
       refreshClaimItems();

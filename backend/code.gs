@@ -592,83 +592,93 @@ function submitClaimsByBillId(body) {
   var claimsSheet = ss.getSheetByName(SHEETS.CLAIMS);
   if (!claimsSheet) throw new Error('Claims sheet not found');
 
-  // Build valid slots from bill items.
-  var bill = getBillById(billId);
-  var validSlots = {};
-  var slotInfo = {};
-  var groupSlots = {};
-  for (var i = 0; i < bill.items.length; i++) {
-    var itemDesc = normalizeItemDescription_(bill.items[i].description);
-    var groupKey = itemDescriptionKey_(itemDesc || 'item');
-    for (var u = 0; u < bill.items[i].quantity; u++) {
-      var slotId = bill.items[i].rowIndex + '_' + u;
-      validSlots[slotId] = true;
-      slotInfo[slotId] = { description: itemDesc || 'item', groupKey: groupKey };
-      if (!groupSlots[groupKey]) groupSlots[groupKey] = [];
-      groupSlots[groupKey].push(slotId);
-    }
-  }
-  for (var c = 0; c < claims.length; c++) {
-    var key = claims[c].rowIndex + '_' + claims[c].unitIndex;
-    if (!validSlots[key]) throw new Error('Invalid claim slot: ' + key);
-  }
+  // Serialize claim writes so concurrent users cannot both read a stale sheet,
+  // resolve the same slot, and overwrite each other (last writer appeared to win).
+  var lock = LockService.getScriptLock();
+  var haveLock = false;
+  try {
+    lock.waitLock(30000);
+    haveLock = true;
 
-  var data = claimsSheet.getDataRange().getValues();
-  var h = data[0];
-  var cBillId = getColIndex(h, 'BillId');
-  var cName = getColIndex(h, 'UserName');
-  var cRow = getColIndex(h, 'RowIndex');
-  var cUnit = getColIndex(h, 'UnitIndex');
-  if (cBillId < 0 || cName < 0 || cRow < 0 || cUnit < 0) throw new Error('Claims sheet missing columns');
-
-  var userLower = normalizeUserName(userName);
-  var takenByOthers = {};
-  var resolvedSlots = {};
-  var resolvedClaims = [];
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][cBillId] || '').trim() !== billId) continue;
-    var rowName = normalizeUserName(data[i][cName]);
-    if (rowName === userLower) continue;
-    takenByOthers[(parseInt(data[i][cRow], 10) || 0) + '_' + (parseInt(data[i][cUnit], 10) || 0)] = true;
-  }
-  for (var k = 0; k < claims.length; k++) {
-    var requestedSlot = claims[k].rowIndex + '_' + claims[k].unitIndex;
-    var requestedInfo = slotInfo[requestedSlot];
-    var descriptionForError = requestedInfo && requestedInfo.description ? requestedInfo.description : 'item';
-    var chosenSlot = requestedSlot;
-    if (takenByOthers[chosenSlot] || resolvedSlots[chosenSlot]) {
-      var candidates = requestedInfo && groupSlots[requestedInfo.groupKey] ? groupSlots[requestedInfo.groupKey] : [];
-      chosenSlot = null;
-      for (var cs = 0; cs < candidates.length; cs++) {
-        var candidate = candidates[cs];
-        if (takenByOthers[candidate]) continue;
-        if (resolvedSlots[candidate]) continue;
-        chosenSlot = candidate;
-        break;
-      }
-      if (!chosenSlot) {
-        throw new Error('Another person has claimed the ' + descriptionForError + '. Please refresh and try again.');
+    // Build valid slots from bill items (fresh bill inside lock).
+    var bill = getBillById(billId);
+    var validSlots = {};
+    var slotInfo = {};
+    var groupSlots = {};
+    for (var i = 0; i < bill.items.length; i++) {
+      var itemDesc = normalizeItemDescription_(bill.items[i].description);
+      var groupKey = itemDescriptionKey_(itemDesc || 'item');
+      for (var u = 0; u < bill.items[i].quantity; u++) {
+        var slotId = bill.items[i].rowIndex + '_' + u;
+        validSlots[slotId] = true;
+        slotInfo[slotId] = { description: itemDesc || 'item', groupKey: groupKey };
+        if (!groupSlots[groupKey]) groupSlots[groupKey] = [];
+        groupSlots[groupKey].push(slotId);
       }
     }
-    resolvedSlots[chosenSlot] = true;
-    var split = chosenSlot.split('_');
-    resolvedClaims.push({
-      rowIndex: parseInt(split[0], 10) || 0,
-      unitIndex: parseInt(split[1], 10) || 0
-    });
-  }
-
-  // Delete existing claims for this user + bill.
-  for (var d = data.length - 1; d >= 1; d--) {
-    if (String(data[d][cBillId] || '').trim() === billId && normalizeUserName(data[d][cName]) === userLower) {
-      claimsSheet.deleteRow(d + 1);
+    for (var c = 0; c < claims.length; c++) {
+      var key = claims[c].rowIndex + '_' + claims[c].unitIndex;
+      if (!validSlots[key]) throw new Error('Invalid claim slot: ' + key);
     }
+
+    var data = claimsSheet.getDataRange().getValues();
+    var h = data[0];
+    var cBillId = getColIndex(h, 'BillId');
+    var cName = getColIndex(h, 'UserName');
+    var cRow = getColIndex(h, 'RowIndex');
+    var cUnit = getColIndex(h, 'UnitIndex');
+    if (cBillId < 0 || cName < 0 || cRow < 0 || cUnit < 0) throw new Error('Claims sheet missing columns');
+
+    var userLower = normalizeUserName(userName);
+    var takenByOthers = {};
+    var resolvedSlots = {};
+    var resolvedClaims = [];
+    for (var ri = 1; ri < data.length; ri++) {
+      if (String(data[ri][cBillId] || '').trim() !== billId) continue;
+      var rowName = normalizeUserName(data[ri][cName]);
+      if (rowName === userLower) continue;
+      takenByOthers[(parseInt(data[ri][cRow], 10) || 0) + '_' + (parseInt(data[ri][cUnit], 10) || 0)] = true;
+    }
+    for (var k = 0; k < claims.length; k++) {
+      var requestedSlot = claims[k].rowIndex + '_' + claims[k].unitIndex;
+      var requestedInfo = slotInfo[requestedSlot];
+      var descriptionForError = requestedInfo && requestedInfo.description ? requestedInfo.description : 'item';
+      var chosenSlot = requestedSlot;
+      if (takenByOthers[chosenSlot] || resolvedSlots[chosenSlot]) {
+        var candidates = requestedInfo && groupSlots[requestedInfo.groupKey] ? groupSlots[requestedInfo.groupKey] : [];
+        chosenSlot = null;
+        for (var cs = 0; cs < candidates.length; cs++) {
+          var candidate = candidates[cs];
+          if (takenByOthers[candidate]) continue;
+          if (resolvedSlots[candidate]) continue;
+          chosenSlot = candidate;
+          break;
+        }
+        if (!chosenSlot) {
+          throw new Error('Another person has claimed the ' + descriptionForError + '. Please refresh and try again.');
+        }
+      }
+      resolvedSlots[chosenSlot] = true;
+      var split = chosenSlot.split('_');
+      resolvedClaims.push({
+        rowIndex: parseInt(split[0], 10) || 0,
+        unitIndex: parseInt(split[1], 10) || 0
+      });
+    }
+
+    // Delete existing claims for this user + bill (indices from same snapshot as resolution).
+    for (var d = data.length - 1; d >= 1; d--) {
+      if (String(data[d][cBillId] || '').trim() === billId && normalizeUserName(data[d][cName]) === userLower) {
+        claimsSheet.deleteRow(d + 1);
+      }
+    }
+    for (var a = 0; a < resolvedClaims.length; a++) {
+      claimsSheet.appendRow([billId, userName, parseInt(resolvedClaims[a].rowIndex, 10), parseInt(resolvedClaims[a].unitIndex, 10)]);
+    }
+    return { ok: true, claims: getClaimsByBillId(billId) };
+  } finally {
+    if (haveLock) lock.releaseLock();
   }
-  // Add replacement claims.
-  for (var a = 0; a < resolvedClaims.length; a++) {
-    claimsSheet.appendRow([billId, userName, parseInt(resolvedClaims[a].rowIndex, 10), parseInt(resolvedClaims[a].unitIndex, 10)]);
-  }
-  return { ok: true, claims: getClaimsByBillId(billId) };
 }
 
 function getOrCreateSubfolder_(rootName, subName) {
