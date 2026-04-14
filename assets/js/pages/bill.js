@@ -200,7 +200,7 @@
     mount.innerHTML =
       '<div class="claim-entry-row">' +
       '<div id="name-mount" class="claim-name-mount"></div>' +
-      '<button id="make-claim-btn" class="btn claim-entry-row__action" type="button">Make a claim</button>' +
+      '<button id="make-claim-btn" class="btn claim-entry-row__action" type="button">Make a Claim</button>' +
       '</div>' +
       '<p id="claim-status" class="status"></p>' +
       itemsHtml;
@@ -209,7 +209,6 @@
       initialValue: state.userName,
       onSelect: function (name) {
         state.userName = name.trim();
-        updateMakeClaimBtn();
         if (state.claimsLoaded) {
           state.claimsLoaded = false;
           state.mySelection = [];
@@ -218,6 +217,7 @@
             if (el && el.parentNode) el.parentNode.removeChild(el);
           });
         }
+        updateMakeClaimBtn();
       }
     });
 
@@ -229,7 +229,9 @@
       }
       var btn = document.getElementById('make-claim-btn');
       if (btn) btn.disabled = true;
-      if (global.SplitifyWorking) global.SplitifyWorking.begin('Loading bill...');
+      if (global.SplitifyWorking) {
+        global.SplitifyWorking.begin(state.claimsLoaded ? 'Refreshing\u2026' : 'Loading bill...');
+      }
       var billPromise = state.bill
         ? Promise.resolve(state.bill)
         : SplitifyAPI.getBillById(state.billId);
@@ -282,6 +284,7 @@
     var btn = document.getElementById('make-claim-btn');
     if (!btn) return;
     btn.disabled = !state.userName;
+    btn.textContent = state.claimsLoaded ? 'Refresh' : 'Make a Claim';
   }
 
   /**
@@ -415,7 +418,7 @@
       var slot = state.mySelection[s];
       var item = itemsByRow[slot.rowIndex];
       if (!item) continue;
-      subtotal += parseFloat(item.unit_price) || 0;
+      subtotal += effectiveUnitForItem(item);
       var key = normalizeDisplayDescription(item.description) || 'Item';
       byDescription[key] = (byDescription[key] || 0) + 1;
     }
@@ -474,7 +477,7 @@
         claimed++;
         itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
         if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
-        byUserSlots[name].subtotal += it.unit_price || 0;
+        byUserSlots[name].subtotal += effectiveUnitForItem(it);
       }
       var claimsByUser = [];
       var itemUserNames = Object.keys(itemClaimByUser).sort();
@@ -485,7 +488,7 @@
         description: normalizeDisplayDescription(it.description), category: it.category,
         quantity: it.quantity, claimed: claimed,
         unclaimed: Math.max(0, it.quantity - claimed),
-        unitPrice: it.unit_price || 0, totalPrice: it.total_price || 0,
+        unitPrice: effectiveUnitForItem(it), totalPrice: it.total_price || 0,
         claimsByUser: claimsByUser
       });
     }
@@ -558,7 +561,27 @@
       }, remaining);
     }).catch(function (err) {
       resetSubmitProgress();
-      updateClaimStatus(err.message || String(err), true);
+      var msg = err.message || String(err);
+      if (!state.billId || !state.claimsLoaded) {
+        updateClaimStatus(msg, true);
+        return;
+      }
+      // Optimistic UI still has mySelection on slots the server did not save; published CSV can
+      // lag behind the sheet. Refresh from the web app (direct) so ticks match reality.
+      SplitifyAPI.getClaimsByBillIdDirect(state.billId)
+        .then(function (freshClaims) {
+          state.claims = freshClaims || [];
+          state.mySelection = SplitifyClaimsState.getMySelectionFromClaims(state.claims, state.userName);
+          state.mySelectionOriginal = state.mySelection.slice();
+          state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
+          state.summaryCache = null;
+          state.consolidatedRowOrder = {};
+          refreshClaimItems();
+          updateClaimStatus(msg, true);
+        })
+        .catch(function () {
+          updateClaimStatus(msg, true);
+        });
     });
   }
 
@@ -619,7 +642,7 @@
         claimed++;
         itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
         if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
-        byUserSlots[name].subtotal += it.unit_price || 0;
+        byUserSlots[name].subtotal += effectiveUnitForItem(it);
       }
       var claimsByUser = [];
       var itemUserNames = Object.keys(itemClaimByUser).sort();
@@ -632,7 +655,7 @@
         quantity:    it.quantity,
         claimed:     claimed,
         unclaimed:   Math.max(0, it.quantity - claimed),
-        unitPrice:   it.unit_price || 0,
+        unitPrice:   effectiveUnitForItem(it),
         totalPrice:  it.total_price || 0,
         claimsByUser: claimsByUser
       });
@@ -787,6 +810,18 @@
       return global.SplitifyFormatters.normalizeItemDescription(description);
     }
     return String(description || '').trim();
+  }
+
+  function effectiveUnitForItem(it) {
+    if (global.SplitifyFormatters && typeof global.SplitifyFormatters.effectiveUnitPrice === 'function') {
+      return global.SplitifyFormatters.effectiveUnitPrice(it.quantity, it.unit_price, it.total_price);
+    }
+    var u = parseFloat(it.unit_price);
+    if (!isNaN(u) && u > 0) return u;
+    var q = parseInt(it.quantity, 10) || 0;
+    var t = parseFloat(it.total_price);
+    if (q > 0 && !isNaN(t)) return t / q;
+    return isNaN(u) ? 0 : u;
   }
 
   global.SplitifyBillPage = { init: init };

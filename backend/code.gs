@@ -101,6 +101,17 @@ function itemDescriptionKey_(description) {
   return normalizeWhitespace_(description).toLowerCase();
 }
 
+/** When unit price is missing/zero but line total and quantity exist, use total/qty. */
+function effectiveItemUnitPrice_(quantity, unitRaw, totalRaw) {
+  var q = parseInt(quantity, 10);
+  if (isNaN(q)) q = 0;
+  var u = parseFloat(unitRaw);
+  var t = parseFloat(totalRaw);
+  if (!isNaN(u) && u > 0) return u;
+  if (q > 0 && !isNaN(t)) return t / q;
+  return isNaN(u) ? 0 : u;
+}
+
 function normalizeDriveFileId(v) {
   if (!v) return null;
   var s = String(v).trim();
@@ -272,13 +283,16 @@ function getBillById(billId) {
   var items = [];
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][cBillId] || '').trim() !== billId) continue;
+    var qty = parseInt(data[i][cQty], 10) || 0;
+    var rawUnit = parseFloat(data[i][cUnit]);
+    var rawTotal = parseFloat(data[i][cTotal]);
     items.push({
       rowIndex: parseInt(data[i][cRow], 10) || 0,
       category: String(data[i][cCat] || ''),
       description: normalizeItemDescription_(String(data[i][cDesc] || '')),
-      quantity: parseInt(data[i][cQty], 10) || 0,
-      unit_price: parseFloat(data[i][cUnit]) || 0,
-      total_price: parseFloat(data[i][cTotal]) || 0
+      quantity: qty,
+      unit_price: effectiveItemUnitPrice_(qty, rawUnit, rawTotal),
+      total_price: isNaN(rawTotal) ? 0 : rawTotal
     });
   }
   return { billId: billId, billDate: billDate, venueName: venueName, items: items, metadata: { open: open, totalPaid: totalPaid, billImageId: imageId } };
@@ -475,7 +489,8 @@ function analyzeBillImage(body) {
     ' drink.beer, drink.wine, drink.spirit, drink.cold_soft, drink.hot, drink.other,' +
     ' food.sandwich, food.wrap, food.burger, food.pizza, food.rice, food.curry, food.noodles, food.plate, food.salad, food.soup, food.fried_side, food.pastry, food.dessert, food.other,' +
     ' or a top-level bucket only if no subtype fits: food, drink, other.' +
-    ' description must be product name only (no quantities, prices, multipliers, symbols, or totals). No markdown, no commentary, JSON only.';
+    ' description must be product name only (no quantities, prices, multipliers, symbols, or totals). No markdown, no commentary, JSON only.' +
+    ' If a line shows total and quantity but not unit price, set unit_price to total_price divided by quantity (and keep total_price as on the receipt).';
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
     contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }] }]
@@ -534,9 +549,14 @@ function completeBillUpload(body) {
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     var qty = parseInt(it.quantity, 10) || 1;
-    var unit = parseFloat(it.unit_price) || 0;
+    var rawUnit = parseFloat(it.unit_price);
+    var unit = isNaN(rawUnit) || rawUnit < 0 ? 0 : rawUnit;
     var total = parseFloat(it.total_price);
     if (isNaN(total)) total = qty * unit;
+    if (unit <= 0 && qty > 0) {
+      var tOnly = parseFloat(it.total_price);
+      if (!isNaN(tOnly)) unit = effectiveItemUnitPrice_(qty, 0, tOnly);
+    }
     billsSheet.appendRow([
       billId,
       analysis.billDate,

@@ -1,4 +1,18 @@
 (function (global) {
+  /**
+   * Per-unit price for display and claim math when the sheet/model has line total
+   * and quantity but unit price is missing or zero.
+   */
+  function effectiveUnitPrice(quantity, unitPrice, totalPrice) {
+    var q = parseInt(quantity, 10);
+    if (isNaN(q)) q = 0;
+    var u = parseFloat(unitPrice);
+    var t = parseFloat(totalPrice);
+    if (!isNaN(u) && u > 0) return u;
+    if (q > 0 && !isNaN(t)) return t / q;
+    return !isNaN(u) ? u : 0;
+  }
+
   function normalizeItemDescription(value) {
     var original = String(value || '').replace(/\s+/g, ' ').trim();
     if (!original) return '';
@@ -41,6 +55,7 @@
   }
 
   global.SplitifyFormatters = {
+    effectiveUnitPrice: effectiveUnitPrice,
     normalizeItemDescription: normalizeItemDescription,
     formatMoney: formatMoney,
     formatBillDateDisplay: formatBillDateDisplay,

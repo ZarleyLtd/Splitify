@@ -1,4 +1,19 @@
 (function (global) {
+  function effectiveUnitForSummaryItem(it) {
+    var q = it.quantity;
+    var u = it.unitPrice != null ? it.unitPrice : it.unit_price;
+    var t = it.totalPrice != null ? it.totalPrice : it.total_price;
+    if (global.SplitifyFormatters && typeof global.SplitifyFormatters.effectiveUnitPrice === 'function') {
+      return global.SplitifyFormatters.effectiveUnitPrice(q, u, t);
+    }
+    var pu = parseFloat(u);
+    if (!isNaN(pu) && pu > 0) return pu;
+    var pq = parseInt(q, 10) || 0;
+    var pt = parseFloat(t);
+    if (pq > 0 && !isNaN(pt)) return pt / pq;
+    return isNaN(pu) ? 0 : pu;
+  }
+
   function render(container, summary, options) {
     if (!container) return;
     options = options || {};
@@ -29,10 +44,10 @@
               userProductMap[cu.userName][desc] = { description: desc, count: 0, totalValue: 0 };
             }
             userProductMap[cu.userName][desc].count += cu.count || 0;
-            userProductMap[cu.userName][desc].totalValue += (cu.count || 0) * (it.unitPrice || 0);
+            userProductMap[cu.userName][desc].totalValue += (cu.count || 0) * effectiveUnitForSummaryItem(it);
           }
           if ((it.unclaimed || 0) > 0) {
-            var uLineVal = it.unclaimed * (it.unitPrice || 0);
+            var uLineVal = it.unclaimed * effectiveUnitForSummaryItem(it);
             unclaimedSubtotal += uLineVal;
             if (!unclaimedMap[desc]) unclaimedMap[desc] = { description: desc, count: 0, totalValue: 0 };
             unclaimedMap[desc].count += it.unclaimed;
@@ -91,8 +106,9 @@
         for (var j = 0; j < summary.byItem.length; j++) {
           var it = summary.byItem[j];
           var descText = normalizeDisplayDescription(it.description);
+          var lineUnit = effectiveUnitForSummaryItem(it);
           html += '<li class="summary-item-row"><div class="summary-item-row__left">' +
-            '<div class="summary-item-main">' + escapeHtml(descText) + ' x' + (it.quantity || 0) + ' @ €' + SplitifyFormatters.formatMoney(it.unitPrice || 0) + '</div>';
+            '<div class="summary-item-main">' + escapeHtml(descText) + ' x' + (it.quantity || 0) + ' @ €' + SplitifyFormatters.formatMoney(lineUnit) + '</div>';
           var claimsByUser = Array.isArray(it.claimsByUser) ? it.claimsByUser : [];
           for (var c = 0; c < claimsByUser.length; c++) {
             html += '<div class="summary-subline">' + escapeHtml(claimsByUser[c].userName) + ' (' + (claimsByUser[c].count || 0) + ')</div>';

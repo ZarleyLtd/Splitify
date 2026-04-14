@@ -233,13 +233,19 @@ var SheetsRead = (function () {
         var bcTotal  = colIndex(bh, 'TotalPrice');
         for (var b = 1; b < billRows.length; b++) {
           if (rowVal(billRows[b], bcBillId) !== billId) continue;
+          var qty = rowInt(billRows[b], bcQty);
+          var unitCol = rowFloat(billRows[b], bcUnit);
+          var totCol = rowFloat(billRows[b], bcTotal);
+          var unitEff = typeof SplitifyFormatters !== 'undefined' && SplitifyFormatters.effectiveUnitPrice
+            ? SplitifyFormatters.effectiveUnitPrice(qty, unitCol, totCol)
+            : (unitCol > 0 ? unitCol : (qty > 0 ? totCol / qty : 0));
           items.push({
             rowIndex:    rowInt(billRows[b], bcRow),
             category:    rowVal(billRows[b], bcCat),
             description: normalizeItemDescription(rowVal(billRows[b], bcDesc)),
-            quantity:    rowInt(billRows[b], bcQty),
-            unit_price:  rowFloat(billRows[b], bcUnit),
-            total_price: rowFloat(billRows[b], bcTotal)
+            quantity:    qty,
+            unit_price:  unitEff,
+            total_price: totCol
           });
         }
       }
