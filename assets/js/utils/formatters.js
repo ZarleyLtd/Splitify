@@ -1,4 +1,19 @@
 (function (global) {
+  function normalizeItemDescription(value) {
+    var original = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!original) return '';
+    var text = original;
+    text = text.replace(/^\d+\s*(?:x|×)?\s+/i, '');
+    text = text.replace(/\s*\(\d+\)\s*$/, '');
+    var atIdx = text.search(/\s+@\s*[€$£]?\s*\d/i);
+    if (atIdx >= 0) text = text.substring(0, atIdx);
+    var xIdx = text.search(/\s+x\s*\d+\b/i);
+    if (xIdx >= 0) text = text.substring(0, xIdx);
+    text = text.replace(/\s+[€$£]\s*\d+(?:[.,]\d+)?(?:\s+[€$£]\s*\d+(?:[.,]\d+)?)?\s*$/, '');
+    text = text.replace(/[-,:;]+$/, '').replace(/\s+/g, ' ').trim();
+    return text || original;
+  }
+
   function formatMoney(value) {
     var n = parseFloat(value);
     if (isNaN(n)) n = 0;
@@ -26,6 +41,7 @@
   }
 
   global.SplitifyFormatters = {
+    normalizeItemDescription: normalizeItemDescription,
     formatMoney: formatMoney,
     formatBillDateDisplay: formatBillDateDisplay,
     formatUploadDateDisplay: formatUploadDateDisplay

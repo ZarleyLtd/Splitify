@@ -89,6 +89,21 @@ var SheetsRead = (function () {
     return m ? m[1] : v;
   }
 
+  function normalizeItemDescription(value) {
+    var original = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!original) return '';
+    var text = original;
+    text = text.replace(/^\d+\s*(?:x|×)?\s+/i, '');
+    text = text.replace(/\s*\(\d+\)\s*$/, '');
+    var atIdx = text.search(/\s+@\s*[€$£]?\s*\d/i);
+    if (atIdx >= 0) text = text.substring(0, atIdx);
+    var xIdx = text.search(/\s+x\s*\d+\b/i);
+    if (xIdx >= 0) text = text.substring(0, xIdx);
+    text = text.replace(/\s+[€$£]\s*\d+(?:[.,]\d+)?(?:\s+[€$£]\s*\d+(?:[.,]\d+)?)?\s*$/, '');
+    text = text.replace(/[-,:;]+$/, '').replace(/\s+/g, ' ').trim();
+    return text || original;
+  }
+
   // ---------------------------------------------------------------------------
   // Config sheet helpers (shared by configNames / getProductIcons / getActiveBillModel)
   // ---------------------------------------------------------------------------
@@ -221,7 +236,7 @@ var SheetsRead = (function () {
           items.push({
             rowIndex:    rowInt(billRows[b], bcRow),
             category:    rowVal(billRows[b], bcCat),
-            description: rowVal(billRows[b], bcDesc),
+            description: normalizeItemDescription(rowVal(billRows[b], bcDesc)),
             quantity:    rowInt(billRows[b], bcQty),
             unit_price:  rowFloat(billRows[b], bcUnit),
             total_price: rowFloat(billRows[b], bcTotal)

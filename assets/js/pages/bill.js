@@ -416,7 +416,7 @@
       var item = itemsByRow[slot.rowIndex];
       if (!item) continue;
       subtotal += parseFloat(item.unit_price) || 0;
-      var key = item.description || 'Item';
+      var key = normalizeDisplayDescription(item.description) || 'Item';
       byDescription[key] = (byDescription[key] || 0) + 1;
     }
 
@@ -482,7 +482,7 @@
         claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
       }
       byItem.push({
-        description: it.description, category: it.category,
+        description: normalizeDisplayDescription(it.description), category: it.category,
         quantity: it.quantity, claimed: claimed,
         unclaimed: Math.max(0, it.quantity - claimed),
         unitPrice: it.unit_price || 0, totalPrice: it.total_price || 0,
@@ -625,7 +625,7 @@
         claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
       }
       byItem.push({
-        description: it.description,
+        description: normalizeDisplayDescription(it.description),
         category:    it.category,
         quantity:    it.quantity,
         claimed:     claimed,
@@ -746,10 +746,13 @@
     var out = [];
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      var key = (it.category || '') + '|' + (it.description || '');
+      var normalizedDesc = normalizeDisplayDescription(it.description) || 'Item';
+      var key = normalizedDesc.toLowerCase();
       if (!map[key]) {
-        map[key] = { category: it.category || '', description: it.description || 'Item', slots: [] };
+        map[key] = { category: it.category || '', description: normalizedDesc, slots: [] };
         out.push(map[key]);
+      } else if (!map[key].category && it.category) {
+        map[key].category = it.category;
       }
       var qty = parseInt(it.quantity, 10) || 0;
       for (var u = 0; u < qty; u++) {
@@ -775,6 +778,13 @@
 
   function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function normalizeDisplayDescription(description) {
+    if (global.SplitifyFormatters && typeof global.SplitifyFormatters.normalizeItemDescription === 'function') {
+      return global.SplitifyFormatters.normalizeItemDescription(description);
+    }
+    return String(description || '').trim();
   }
 
   global.SplitifyBillPage = { init: init };

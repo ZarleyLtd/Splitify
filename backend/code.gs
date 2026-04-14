@@ -76,6 +76,31 @@ function normalizeUserName(v) {
   return String(v || '').toLowerCase().replace(/\s+/g, '').trim();
 }
 
+function normalizeWhitespace_(v) {
+  return String(v || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeItemDescription_(raw) {
+  var original = normalizeWhitespace_(raw);
+  if (!original) return '';
+  var text = original;
+  // Receipt lines often begin with quantity (e.g. "5 French Fries @ 6.50").
+  text = text.replace(/^\d+\s*(?:x|×)?\s+/i, '');
+  // Remove trailing count markers that can be duplicated in OCR output.
+  text = text.replace(/\s*\(\d+\)\s*$/, '');
+  var atIdx = text.search(/\s+@\s*[€$£]?\s*\d/i);
+  if (atIdx >= 0) text = text.substring(0, atIdx);
+  var xIdx = text.search(/\s+x\s*\d+\b/i);
+  if (xIdx >= 0) text = text.substring(0, xIdx);
+  text = text.replace(/\s+[€$£]\s*\d+(?:[.,]\d+)?(?:\s+[€$£]\s*\d+(?:[.,]\d+)?)?\s*$/, '');
+  text = normalizeWhitespace_(text.replace(/[-,:;]+$/, ''));
+  return text || original;
+}
+
+function itemDescriptionKey_(description) {
+  return normalizeWhitespace_(description).toLowerCase();
+}
+
 function normalizeDriveFileId(v) {
   if (!v) return null;
   var s = String(v).trim();
@@ -250,7 +275,7 @@ function getBillById(billId) {
     items.push({
       rowIndex: parseInt(data[i][cRow], 10) || 0,
       category: String(data[i][cCat] || ''),
-      description: String(data[i][cDesc] || ''),
+      description: normalizeItemDescription_(String(data[i][cDesc] || '')),
       quantity: parseInt(data[i][cQty], 10) || 0,
       unit_price: parseFloat(data[i][cUnit]) || 0,
       total_price: parseFloat(data[i][cTotal]) || 0
@@ -450,7 +475,7 @@ function analyzeBillImage(body) {
     ' drink.beer, drink.wine, drink.spirit, drink.cold_soft, drink.hot, drink.other,' +
     ' food.sandwich, food.wrap, food.burger, food.pizza, food.rice, food.curry, food.noodles, food.plate, food.salad, food.soup, food.fried_side, food.pastry, food.dessert, food.other,' +
     ' or a top-level bucket only if no subtype fits: food, drink, other.' +
-    ' description must be the line text from the receipt (short, human-readable). No markdown, no commentary, JSON only.';
+    ' description must be product name only (no quantities, prices, multipliers, symbols, or totals). No markdown, no commentary, JSON only.';
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
     contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }] }]
@@ -517,7 +542,7 @@ function completeBillUpload(body) {
       analysis.billDate,
       i,
       String(it.category || 'other'),
-      String(it.description || ''),
+      normalizeItemDescription_(String(it.description || '')),
       qty,
       unit,
       total
@@ -570,9 +595,17 @@ function submitClaimsByBillId(body) {
   // Build valid slots from bill items.
   var bill = getBillById(billId);
   var validSlots = {};
+  var slotInfo = {};
+  var groupSlots = {};
   for (var i = 0; i < bill.items.length; i++) {
+    var itemDesc = normalizeItemDescription_(bill.items[i].description);
+    var groupKey = itemDescriptionKey_(itemDesc || 'item');
     for (var u = 0; u < bill.items[i].quantity; u++) {
-      validSlots[bill.items[i].rowIndex + '_' + u] = true;
+      var slotId = bill.items[i].rowIndex + '_' + u;
+      validSlots[slotId] = true;
+      slotInfo[slotId] = { description: itemDesc || 'item', groupKey: groupKey };
+      if (!groupSlots[groupKey]) groupSlots[groupKey] = [];
+      groupSlots[groupKey].push(slotId);
     }
   }
   for (var c = 0; c < claims.length; c++) {
@@ -590,6 +623,8 @@ function submitClaimsByBillId(body) {
 
   var userLower = normalizeUserName(userName);
   var takenByOthers = {};
+  var resolvedSlots = {};
+  var resolvedClaims = [];
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][cBillId] || '').trim() !== billId) continue;
     var rowName = normalizeUserName(data[i][cName]);
@@ -597,8 +632,30 @@ function submitClaimsByBillId(body) {
     takenByOthers[(parseInt(data[i][cRow], 10) || 0) + '_' + (parseInt(data[i][cUnit], 10) || 0)] = true;
   }
   for (var k = 0; k < claims.length; k++) {
-    var slot = claims[k].rowIndex + '_' + claims[k].unitIndex;
-    if (takenByOthers[slot]) throw new Error('Slot already claimed by another user: ' + slot);
+    var requestedSlot = claims[k].rowIndex + '_' + claims[k].unitIndex;
+    var requestedInfo = slotInfo[requestedSlot];
+    var descriptionForError = requestedInfo && requestedInfo.description ? requestedInfo.description : 'item';
+    var chosenSlot = requestedSlot;
+    if (takenByOthers[chosenSlot] || resolvedSlots[chosenSlot]) {
+      var candidates = requestedInfo && groupSlots[requestedInfo.groupKey] ? groupSlots[requestedInfo.groupKey] : [];
+      chosenSlot = null;
+      for (var cs = 0; cs < candidates.length; cs++) {
+        var candidate = candidates[cs];
+        if (takenByOthers[candidate]) continue;
+        if (resolvedSlots[candidate]) continue;
+        chosenSlot = candidate;
+        break;
+      }
+      if (!chosenSlot) {
+        throw new Error('Another person has claimed the ' + descriptionForError + '. Please refresh and try again.');
+      }
+    }
+    resolvedSlots[chosenSlot] = true;
+    var split = chosenSlot.split('_');
+    resolvedClaims.push({
+      rowIndex: parseInt(split[0], 10) || 0,
+      unitIndex: parseInt(split[1], 10) || 0
+    });
   }
 
   // Delete existing claims for this user + bill.
@@ -608,8 +665,8 @@ function submitClaimsByBillId(body) {
     }
   }
   // Add replacement claims.
-  for (var a = 0; a < claims.length; a++) {
-    claimsSheet.appendRow([billId, userName, parseInt(claims[a].rowIndex, 10), parseInt(claims[a].unitIndex, 10)]);
+  for (var a = 0; a < resolvedClaims.length; a++) {
+    claimsSheet.appendRow([billId, userName, parseInt(resolvedClaims[a].rowIndex, 10), parseInt(resolvedClaims[a].unitIndex, 10)]);
   }
   return { ok: true, claims: getClaimsByBillId(billId) };
 }

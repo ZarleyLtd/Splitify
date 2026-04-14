@@ -20,7 +20,7 @@
         var unclaimedSubtotal = 0;
         for (var k = 0; k < byItem.length; k++) {
           var it = byItem[k];
-          var desc = it.description || '';
+          var desc = normalizeDisplayDescription(it.description) || '';
           var claimedBy = Array.isArray(it.claimsByUser) ? it.claimsByUser : [];
           for (var ci = 0; ci < claimedBy.length; ci++) {
             var cu = claimedBy[ci];
@@ -90,8 +90,9 @@
         html += '<ul class="summary-list">';
         for (var j = 0; j < summary.byItem.length; j++) {
           var it = summary.byItem[j];
+          var descText = normalizeDisplayDescription(it.description);
           html += '<li class="summary-item-row"><div class="summary-item-row__left">' +
-            '<div class="summary-item-main">' + escapeHtml(it.description) + ' x' + (it.quantity || 0) + ' @ €' + SplitifyFormatters.formatMoney(it.unitPrice || 0) + '</div>';
+            '<div class="summary-item-main">' + escapeHtml(descText) + ' x' + (it.quantity || 0) + ' @ €' + SplitifyFormatters.formatMoney(it.unitPrice || 0) + '</div>';
           var claimsByUser = Array.isArray(it.claimsByUser) ? it.claimsByUser : [];
           for (var c = 0; c < claimsByUser.length; c++) {
             html += '<div class="summary-subline">' + escapeHtml(claimsByUser[c].userName) + ' (' + (claimsByUser[c].count || 0) + ')</div>';
@@ -123,6 +124,13 @@
     var n = parseFloat(value);
     if (isNaN(n)) n = 0;
     return n.toFixed(1);
+  }
+
+  function normalizeDisplayDescription(description) {
+    if (global.SplitifyFormatters && typeof global.SplitifyFormatters.normalizeItemDescription === 'function') {
+      return global.SplitifyFormatters.normalizeItemDescription(description);
+    }
+    return String(description || '').trim();
   }
 
   global.SplitifySummary = { render: render };
