@@ -3,14 +3,24 @@
   "short_name": "Splitify",
   "icons": [
     {
-      "src": "assets/images/SplitifIcon.png",
+      "src": "assets/images/SplitifIcon-square-192.png",
       "type": "image/png",
-      "sizes": "322x334"
+      "sizes": "192x192"
+    },
+    {
+      "src": "assets/images/SplitifIcon-square-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    },
+    {
+      "src": "assets/images/SplitifIcon-square-1024.png",
+      "type": "image/png",
+      "sizes": "1024x1024"
     }
   ],
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
-  "display": "browser",
+  "display": "standalone",
   "background_color": "#f5f0e8",
   "theme_color": "#8f4a3c"
 }
