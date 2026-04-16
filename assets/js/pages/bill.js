@@ -772,7 +772,7 @@
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var normalizedDesc = normalizeDisplayDescription(it.description) || 'Item';
-      var key = normalizedDesc.toLowerCase();
+      var key = consolidatedGroupKey(it, normalizedDesc);
       if (!map[key]) {
         map[key] = { category: it.category || '', description: normalizedDesc, slots: [] };
         out.push(map[key]);
@@ -785,6 +785,17 @@
       }
     }
     return out;
+  }
+
+  /**
+   * Keep servings with different unit prices separate (e.g. pint vs glass),
+   * even if OCR/model emits the same base description.
+   */
+  function consolidatedGroupKey(item, normalizedDesc) {
+    var descKey = String(normalizedDesc || '').toLowerCase();
+    var catKey = String((item && item.category) || '').toLowerCase();
+    var cents = Math.round(effectiveUnitForItem(item) * 100);
+    return descKey + '|' + catKey + '|' + cents;
   }
 
   function resolveExistingUserName(typedName) {

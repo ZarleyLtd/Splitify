@@ -36,22 +36,23 @@
         for (var k = 0; k < byItem.length; k++) {
           var it = byItem[k];
           var desc = normalizeDisplayDescription(it.description) || '';
+          var groupKey = summaryItemGroupKey(desc, effectiveUnitForSummaryItem(it));
           var claimedBy = Array.isArray(it.claimsByUser) ? it.claimsByUser : [];
           for (var ci = 0; ci < claimedBy.length; ci++) {
             var cu = claimedBy[ci];
             if (!userProductMap[cu.userName]) userProductMap[cu.userName] = {};
-            if (!userProductMap[cu.userName][desc]) {
-              userProductMap[cu.userName][desc] = { description: desc, count: 0, totalValue: 0 };
+            if (!userProductMap[cu.userName][groupKey]) {
+              userProductMap[cu.userName][groupKey] = { description: desc, count: 0, totalValue: 0 };
             }
-            userProductMap[cu.userName][desc].count += cu.count || 0;
-            userProductMap[cu.userName][desc].totalValue += (cu.count || 0) * effectiveUnitForSummaryItem(it);
+            userProductMap[cu.userName][groupKey].count += cu.count || 0;
+            userProductMap[cu.userName][groupKey].totalValue += (cu.count || 0) * effectiveUnitForSummaryItem(it);
           }
           if ((it.unclaimed || 0) > 0) {
             var uLineVal = it.unclaimed * effectiveUnitForSummaryItem(it);
             unclaimedSubtotal += uLineVal;
-            if (!unclaimedMap[desc]) unclaimedMap[desc] = { description: desc, count: 0, totalValue: 0 };
-            unclaimedMap[desc].count += it.unclaimed;
-            unclaimedMap[desc].totalValue += uLineVal;
+            if (!unclaimedMap[groupKey]) unclaimedMap[groupKey] = { description: desc, count: 0, totalValue: 0 };
+            unclaimedMap[groupKey].count += it.unclaimed;
+            unclaimedMap[groupKey].totalValue += uLineVal;
           }
         }
         html += '<ul class="summary-list">';
@@ -147,6 +148,12 @@
       return global.SplitifyFormatters.normalizeItemDescription(description);
     }
     return String(description || '').trim();
+  }
+
+  function summaryItemGroupKey(description, effectiveUnit) {
+    var descKey = String(description || '').toLowerCase();
+    var unitCents = Math.round((parseFloat(effectiveUnit) || 0) * 100);
+    return descKey + '|' + unitCents;
   }
 
   global.SplitifySummary = { render: render };

@@ -97,8 +97,11 @@ function normalizeItemDescription_(raw) {
   return text || original;
 }
 
-function itemDescriptionKey_(description) {
-  return normalizeWhitespace_(description).toLowerCase();
+function itemGroupKey_(description, unitPrice, category) {
+  var descKey = normalizeWhitespace_(description).toLowerCase();
+  var unitCents = Math.round((parseFloat(unitPrice) || 0) * 100);
+  var catKey = normalizeWhitespace_(category).toLowerCase();
+  return descKey + '|' + catKey + '|' + unitCents;
 }
 
 /** When unit price is missing/zero but line total and quantity exist, use total/qty. */
@@ -489,7 +492,7 @@ function analyzeBillImage(body) {
     ' drink.beer, drink.wine, drink.spirit, drink.cold_soft, drink.hot, drink.other,' +
     ' food.sandwich, food.wrap, food.burger, food.pizza, food.rice, food.curry, food.noodles, food.plate, food.salad, food.soup, food.fried_side, food.pastry, food.dessert, food.other,' +
     ' or a top-level bucket only if no subtype fits: food, drink, other.' +
-    ' description must be product name only (no quantities, prices, multipliers, symbols, or totals). No markdown, no commentary, JSON only.' +
+    ' description must keep meaningful variant qualifiers that distinguish products (for example Pint vs Glass, Bottle vs Draft, and volume markers like 125ml/250ml), while still excluding prices/totals/multipliers/symbols. No markdown, no commentary, JSON only.' +
     ' If a line shows total and quantity but not unit price, set unit_price to total_price divided by quantity (and keep total_price as on the receipt).';
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
@@ -627,7 +630,11 @@ function submitClaimsByBillId(body) {
     var groupSlots = {};
     for (var i = 0; i < bill.items.length; i++) {
       var itemDesc = normalizeItemDescription_(bill.items[i].description);
-      var groupKey = itemDescriptionKey_(itemDesc || 'item');
+      var groupKey = itemGroupKey_(
+        itemDesc || 'item',
+        bill.items[i].unit_price,
+        bill.items[i].category
+      );
       for (var u = 0; u < bill.items[i].quantity; u++) {
         var slotId = bill.items[i].rowIndex + '_' + u;
         validSlots[slotId] = true;
