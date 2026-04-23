@@ -1,0 +1,10 @@
+# Supabase local dev config (optional). Deploy migrations with: supabase db push
+# Edge Function: supabase functions deploy splitify-api
+
+project_id = "splitify"
+
+[api]
+enabled = true
+
+[functions.splitify-api]
+verify_jwt = false
