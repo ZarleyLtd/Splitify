@@ -9,7 +9,7 @@
     finalizeInProgress: false,
     scanAgainInProgress: false,
     bgUploadSession: 0,
-    /** True after Confirm succeeded; abandoning UI must not delete the bill from the sheet. */
+    /** True after Confirm succeeded; abandoning UI must not delete the bill from the backend. */
     shareLinkCommitted: false
   };
 

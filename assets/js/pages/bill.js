@@ -132,7 +132,7 @@
     state.summaryCache = null;
     renderTab();
     // Background API refresh on every tab switch when claims are loaded — keeps both
-    // Claim and Summary in sync with the live sheet regardless of CSV cache lag.
+    // Claim and Summary in sync with the live backend.
     if (state.claimsLoaded && state.billId) {
       backgroundRefreshClaims();
     }
@@ -524,7 +524,7 @@
       return;
     }
 
-    var PROGRESS_MS = 5000;
+    var PROGRESS_MS = 1000;
     var tStart = Date.now();
     var btn = document.getElementById('submit-claims-btn');
     if (btn) {
@@ -553,12 +553,17 @@
       state.mySelectionOriginal = state.mySelection.slice();
       state.summaryCache = null;
       refreshClaimItems();
-      var remaining = Math.max(0, PROGRESS_MS - (Date.now() - tStart));
-      setTimeout(function () {
+      var elapsed = Date.now() - tStart;
+      var bar = document.getElementById('submit-claims-bar');
+      if (bar && elapsed < PROGRESS_MS) {
+        bar.style.transition = 'none';
+        bar.style.width = '100%';
+      }
+      requestAnimationFrame(function () {
         resetSubmitProgress();
         updateClaimStatus('');
         showClaimsSuccessOverlay();
-      }, remaining);
+      });
     }).catch(function (err) {
       resetSubmitProgress();
       var msg = err.message || String(err);
@@ -566,8 +571,7 @@
         updateClaimStatus(msg, true);
         return;
       }
-      // Optimistic UI still has mySelection on slots the server did not save; published CSV can
-      // lag behind the sheet. Refresh from the web app (direct) so ticks match reality.
+      // Optimistic UI may be out of sync; refresh claims from the API (direct) so ticks match reality.
       SplitifyAPI.getClaimsByBillIdDirect(state.billId)
         .then(function (freshClaims) {
           state.claims = freshClaims || [];
@@ -703,7 +707,6 @@
       return;
     }
     // When claims are loaded in state they come from the backend API (authoritative).
-    // Computing locally avoids showing stale data from the published CSV cache.
     if (state.claimsLoaded && state.bill) {
       var summary = buildSummaryFromState();
       state.summaryCache = summary;
