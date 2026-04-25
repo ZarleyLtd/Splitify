@@ -11,7 +11,7 @@
  *
  * Usage: node scripts/migrate-google-to-supabase.mjs
  *
- * Idempotent: skips bills that already exist in public.bills.
+ * Idempotent: skips bills that already exist in splitify.bills.
  */
 
 const LEGACY = process.env.LEGACY_API_URL?.replace(/\/$/, "");
@@ -29,6 +29,8 @@ const sbHeaders = {
   apikey: KEY,
   Authorization: `Bearer ${KEY}`,
   "Content-Type": "application/json",
+  "Accept-Profile": "splitify",
+  "Content-Profile": "splitify",
   Prefer: "return=minimal,resolution=merge-duplicates",
 };
 
@@ -83,7 +85,7 @@ async function sbUploadImage(billId, base64, mimeType) {
   const path = `bills/${billId}.jpg`;
   const bin = Buffer.from(base64, "base64");
   const r = await fetch(
-    `${SB}/storage/v1/object/bill-images/${path}?upsert=true`,
+    `${SB}/storage/v1/object/splitify/${path}?upsert=true`,
     {
       method: "POST",
       headers: {

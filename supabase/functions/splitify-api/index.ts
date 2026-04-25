@@ -21,7 +21,7 @@ const GEMINI_BILL_ALLOWED_MODELS: Record<string, boolean> = {
   "gemma-3-27b-it": true,
 };
 
-const BUCKET = "bill-images";
+const BUCKET = "splitify";
 const IMAGE_PREFIX = "bills/";
 
 const corsHeaders: Record<string, string> = {
@@ -700,7 +700,7 @@ async function submitClaimsByBillIdWithClient(
       total_price: number;
     }>`
       SELECT row_index, category, description, quantity, unit_price, total_price
-      FROM bill_items WHERE bill_id = ${billId} ORDER BY row_index
+      FROM splitify.bill_items WHERE bill_id = ${billId} ORDER BY row_index
     `;
 
     const claimsRes = await client.queryObject<{
@@ -708,7 +708,7 @@ async function submitClaimsByBillIdWithClient(
       row_index: number;
       unit_index: number;
     }>`
-      SELECT user_name, row_index, unit_index FROM claims WHERE bill_id = ${billId}
+      SELECT user_name, row_index, unit_index FROM splitify.claims WHERE bill_id = ${billId}
     `;
 
     const billItemsForResolve = (itemsRes.rows || []).map((row) => {
@@ -744,13 +744,13 @@ async function submitClaimsByBillIdWithClient(
 
     const uNorm = normalizeUserName(userName);
     await client.queryObject`
-      DELETE FROM claims WHERE bill_id = ${billId}
+      DELETE FROM splitify.claims WHERE bill_id = ${billId}
         AND lower(regexp_replace(trim(user_name), '\\s+', '', 'g')) = ${uNorm}
     `;
 
     for (const rc of resolved) {
       await client.queryObject`
-        INSERT INTO claims (bill_id, user_name, row_index, unit_index)
+        INSERT INTO splitify.claims (bill_id, user_name, row_index, unit_index)
         VALUES (${billId}, ${userName}, ${rc.rowIndex}, ${rc.unitIndex})
       `;
     }
@@ -919,7 +919,9 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const sb = createClient(supabaseUrl, serviceKey);
+  const sb = createClient(supabaseUrl, serviceKey, {
+    db: { schema: "splitify" },
+  });
 
   if (req.method === "GET") {
     return doGet(sb, new URL(req.url));
