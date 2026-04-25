@@ -10,11 +10,13 @@ Splitify is a bill-splitting web app with a shareable bill link flow:
 
 ## Supabase setup (overview)
 
-- **Database (Postgres)** stores bills, line items, claims, and app config.
-- **Storage** bucket `bill-images` stores receipt photos.
+- **Database (Postgres)** stores bills, line items, claims, and app config in the **`splitify`** schema.
+- **Storage** bucket `splitify` stores receipt photos.
 - **Edge Function** `splitify-api` is your API: same behavior as the old Google Apps Script backend (`{ error, data }` responses, same `action` names).
 
 The frontend only needs the **function URL** in config. It does **not** need your Supabase anon key or service role key in the browser.
+
+Splitify backend queries are schema-scoped to `splitify` (no fallback to `public`).
 
 ---
 
@@ -40,11 +42,12 @@ Follow these in order. Pause after each major step and confirm it worked (notes 
 2. Click **New query**.
 3. On your computer, open the file [`supabase/migrations/20250422120000_splitify_schema.sql`](supabase/migrations/20250422120000_splitify_schema.sql) in this repo, **copy its entire contents**, paste into the SQL Editor, and click **Run**.
 4. You should see **Success** with no errors.
+5. Open **Settings** -> **API** and add `splitify` in **Exposed Schemas**.
 
 **Check:**
 
-- **Table Editor** shows tables: `bills`, `bill_items`, `claims`, `config_entries`, `upload_jobs`.
-- **Storage** shows a bucket named **`bill-images`**.
+- **Table Editor** shows tables in schema `splitify`: `bills`, `bill_items`, `claims`, `config_entries`, `upload_jobs`.
+- **Storage** shows a bucket named **`splitify`**.
 
 ---
 
@@ -145,7 +148,7 @@ Repeat for each secret name (see [secrets CLI](https://supabase.com/docs/guides/
 
 ### Step 7 — Add config rows (`config_entries`)
 
-The app reads icons, optional quips, and the active Gemini model from **`public.config_entries`**.
+The app reads icons, optional quips, and the active Gemini model from **`splitify.config_entries`**.
 
 **Option A — Table Editor (easiest):**
 
@@ -155,7 +158,7 @@ The app reads icons, optional quips, and the active Gemini model from **`public.
    - `key`: `quip`, `value`: a short caption string (you can add several rows with key `quip` or one row with key `quips` depending on what you had in Sheets)
    - `key`: `productIconCategory:drink.beer`, `value`: URL or emoji for that category icon (same pattern as your old Sheet **Config** tab)
 
-**Option B — SQL:** run `INSERT INTO public.config_entries (key, value) VALUES (...);` in the SQL Editor.
+**Option B — SQL:** run `INSERT INTO splitify.config_entries (key, value) VALUES (...);` in the SQL Editor.
 
 **Check:** At least `aiModelActive` is set so bill scanning uses a valid model.
 
@@ -178,7 +181,7 @@ The app reads icons, optional quips, and the active Gemini model from **`public.
 
 1. Open `index.html`, upload a receipt, complete the flow, copy the `bill.html?billId=...` link.
 2. Open that link, enter a name, claim items, open **Summary**.
-3. Open **Storage** → **`bill-images`** — you should see an object under `bills/...` after an upload with an image.
+3. Open **Storage** → **`splitify`** — you should see an object under `bills/...` after an upload with an image.
 
 If something fails, open **Edge Functions** → **splitify-api** → **Logs** in the dashboard and read the error message.
 
@@ -209,7 +212,17 @@ node scripts/migrate-google-to-supabase.mjs
 
 (On macOS/Linux use `export` instead of `set`.)
 
-The script is **idempotent**: bills that already exist in `public.bills` are skipped. It copies line items, claims, and bill images into Storage.
+The script is **idempotent**: bills that already exist in `splitify.bills` are skipped. It copies line items, claims, and bill images into Storage.
+
+If you already have receipt images in the old `bill-images` bucket, run this one-time copy script after deploying latest changes:
+
+```bash
+set SUPABASE_URL=https://<ref>.supabase.co
+set SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
+node scripts/migrate-bucket-bill-images-to-splitify.mjs
+```
+
+(On macOS/Linux use `export` instead of `set`.)
 
 ## Manual verification checklist
 
