@@ -226,6 +226,113 @@ body {
   white-space: nowrap;
 }
 
+.admin-title-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.admin-settings-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.admin-settings-btn:hover {
+  background: rgba(43, 33, 24, 0.08);
+  color: var(--text);
+}
+.admin-settings-btn:hover svg {
+  filter: brightness(1.08) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+.admin-settings-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.admin-settings-btn svg {
+  display: block;
+}
+
+/* Admin settings: native dialog (same open/closed pattern as help-strip) */
+.admin-settings-dialog {
+  display: none;
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  box-sizing: border-box;
+  z-index: 1400;
+  max-width: calc(100vw - 24px);
+  width: min(420px, 100%);
+}
+.admin-settings-dialog[open] {
+  display: block;
+}
+.admin-settings-dialog::backdrop {
+  background: rgba(12, 10, 9, 0.55);
+}
+.admin-settings-dialog__inner {
+  background: var(--paper);
+  border-radius: 14px;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.admin-settings-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--paper-dark);
+  background: linear-gradient(180deg, var(--paper) 0%, var(--paper-dark) 100%);
+}
+.admin-settings-dialog__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.admin-settings-dialog__body {
+  padding: 16px;
+}
+.admin-settings-label {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.admin-settings-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(43, 33, 24, 0.2);
+  font-size: 15px;
+  font-family: Georgia, "Times New Roman", serif;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text);
+}
+.admin-settings-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+
 .admin-bill-list {
   list-style: none;
   margin: 0;

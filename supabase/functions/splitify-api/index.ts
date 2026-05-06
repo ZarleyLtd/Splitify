@@ -23,6 +23,61 @@ const GEMINI_BILL_ALLOWED_MODELS: Record<string, boolean> = {
 
 const BUCKET = "splitify";
 const IMAGE_PREFIX = "bills/";
+const DB_SCHEMA = "splitify";
+
+/** PostgREST PATCH + POST — avoids supabase-js insert/upsert ever sending ON CONFLICT (needs unique/PK). */
+async function patchOrInsertConfigEntry(
+  supabaseUrl: string,
+  serviceKey: string,
+  entryKey: string,
+  entryValue: string,
+): Promise<void> {
+  const base = supabaseUrl.replace(/\/$/, "");
+  const headers: Record<string, string> = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "Accept-Profile": DB_SCHEMA,
+    "Content-Profile": DB_SCHEMA,
+    Prefer: "return=representation",
+  };
+  const patchRes = await fetch(
+    `${base}/rest/v1/config_entries?key=eq.${
+      encodeURIComponent(entryKey)
+    }`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ value: entryValue }),
+    },
+  );
+  const patchText = await patchRes.text();
+  if (!patchRes.ok) {
+    throw new Error(
+      patchText || `config_entries PATCH failed: ${patchRes.status}`,
+    );
+  }
+  let updated: unknown = [];
+  try {
+    updated = patchText ? JSON.parse(patchText) : [];
+  } catch {
+    throw new Error("config_entries PATCH: invalid JSON");
+  }
+  if (Array.isArray(updated) && updated.length > 0) return;
+
+  const postRes = await fetch(`${base}/rest/v1/config_entries`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ key: entryKey, value: entryValue }),
+  });
+  const postText = await postRes.text();
+  if (!postRes.ok) {
+    throw new Error(
+      postText || `config_entries POST failed: ${postRes.status}`,
+    );
+  }
+}
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -142,6 +197,29 @@ async function getActiveBillModelFromConfig(
   const model = String(data.value || "").trim();
   if (model && GEMINI_BILL_ALLOWED_MODELS[model]) return model;
   return GEMINI_BILL_DEFAULT_MODEL;
+}
+
+function getAllowedBillModelIds(): string[] {
+  return Object.keys(GEMINI_BILL_ALLOWED_MODELS).sort();
+}
+
+async function setActiveBillModel(
+  sb: ReturnType<typeof createClient>,
+  body: { modelId?: string },
+) {
+  const modelId = String(body.modelId || "").trim();
+  if (!modelId || !GEMINI_BILL_ALLOWED_MODELS[modelId]) {
+    throw new Error("Invalid bill model");
+  }
+  const cfgKey = "aiModelActive";
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Missing Supabase URL or service role key");
+  }
+  await patchOrInsertConfigEntry(supabaseUrl, serviceKey, cfgKey, modelId);
+
+  return { modelId: await getActiveBillModelFromConfig(sb) };
 }
 
 async function getBillItems(
@@ -841,7 +919,10 @@ async function doGet(
     } else if (action === "getProductIcons") {
       out.data = await getProductIcons(sb);
     } else if (action === "getActiveBillModel") {
-      out.data = { modelId: await getActiveBillModelFromConfig(sb) };
+      out.data = {
+        modelId: await getActiveBillModelFromConfig(sb),
+        allowedModelIds: getAllowedBillModelIds(),
+      };
     } else if (action === "listBills") {
       out.data = await listBills(sb);
     } else if (action === "getQuips") {
@@ -903,6 +984,11 @@ async function doPost(
       );
     } else if (action === "deleteBillById") {
       out.data = await deleteBillById(sb, body as { billId?: string });
+    } else if (action === "setActiveBillModel") {
+      out.data = await setActiveBillModel(
+        sb,
+        body as { modelId?: string },
+      );
     } else {
       throw new Error("Unknown or missing action");
     }
