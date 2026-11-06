@@ -18,7 +18,13 @@
     consolidatedRowOrder: {}
   };
 
-  var SLOT_STATE_ORDER = { 'claimed-by-me': 0, 'available': 1, 'claimed-by-other': 2 };
+  var SLOT_STATE_ORDER = {
+    'claimed-by-me': 0,
+    'shared-by-me': 1,
+    'available': 2,
+    'shared-by-other': 3,
+    'claimed-by-other': 4
+  };
 
   function getOrderedSlotsForGroup(group, groupIndex) {
     var rowKey = 'g' + groupIndex;
@@ -145,15 +151,12 @@
         state.claims = freshClaims || [];
         state.summaryCache = null;
         // Rebuild claimMap: other users' latest claims + current user's pending mySelection.
-        var currentUserNorm = SplitifyClaimsState.normalizeName(state.userName);
-        var otherClaims = state.claims.filter(function (c) {
-          return SplitifyClaimsState.normalizeName(c.userName) !== currentUserNorm;
-        });
-        var claimMap = SplitifyClaimsState.buildClaimMap(otherClaims);
-        for (var i = 0; i < state.mySelection.length; i++) {
-          claimMap[SplitifyClaimsState.slotKey(state.mySelection[i].rowIndex, state.mySelection[i].unitIndex)] = state.userName;
-        }
-        state.claimMap = claimMap;
+        var otherMap = SplitifyClaimsState.buildClaimMapExcludingUser(state.claims, state.userName);
+        state.claimMap = SplitifyClaimsState.applySelectionToClaimMap(
+          otherMap,
+          state.mySelection,
+          state.userName
+        );
         if (state.tab === 'claim') {
           refreshClaimItems();
         } else if (state.tab === 'summary') {
@@ -272,6 +275,7 @@
           claimMap: state.claimMap,
           currentUser: state.userName,
           onSlotClick: onSlotClick,
+          onSlotLongPress: onSlotLongPress,
           onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
@@ -287,70 +291,120 @@
     btn.textContent = state.claimsLoaded ? 'Refresh' : 'Make a Claim';
   }
 
-  /**
-   * Brief message pattern (see .cursor/rules/brief-message.mdc): pill above trigger, 1200ms.
-   * @param {string} text
-   * @param {HTMLElement|null} triggerEl - element to anchor above (fixed coords from getBoundingClientRect)
-   * @param {{ durationMs?: number, disableElement?: HTMLElement|null }} [options]
-   */
-  /**
-   * Brief message pattern (see .cursor/rules/brief-message.mdc): pill above trigger, 1200ms.
-   * @param {string} text
-   * @param {HTMLElement|null} triggerEl - element to anchor above (fixed coords from getBoundingClientRect)
-   * @param {{ durationMs?: number, disableElement?: HTMLElement|null }} [options]
-   */
-  function showBriefMessage(text, triggerEl, options) {
-    options = options || {};
-    var durationMs = options.durationMs != null ? options.durationMs : 1200;
-    var disableEl = options.disableElement != null ? options.disableElement : null;
-    var msg = document.createElement('div');
-    msg.className = 'brief-message brief-message--above';
-    msg.setAttribute('role', 'status');
-    msg.setAttribute('aria-live', 'polite');
-    msg.textContent = text;
-    document.body.appendChild(msg);
-    if (triggerEl && typeof triggerEl.getBoundingClientRect === 'function') {
-      var rect = triggerEl.getBoundingClientRect();
-      var centerX = rect.left + rect.width / 2;
-      msg.style.top = (rect.top - 8) + 'px';
-      msg.style.left = centerX + 'px';
-      // Read rendered bounds (after CSS transform) to clamp horizontally
-      var msgRect = msg.getBoundingClientRect();
-      var pad = 8;
-      var left = centerX;
-      if (msgRect.left < pad) {
-        left = left + (pad - msgRect.left);
-      } else if (msgRect.right > window.innerWidth - pad) {
-        left = left - (msgRect.right - (window.innerWidth - pad));
-      }
-      msg.style.left = left + 'px';
-      // If there is not enough room above the trigger, show below instead
-      if (msgRect.top < pad) {
-        msg.style.top = (rect.bottom + 8) + 'px';
-        msg.classList.remove('brief-message--above');
-        msg.classList.add('brief-message--below');
-      }
-    } else {
-      msg.style.left = '50%';
-      msg.style.top = '25%';
-    }
-    if (disableEl) disableEl.disabled = true;
-    setTimeout(function () {
-      if (msg.parentNode) msg.parentNode.removeChild(msg);
-      if (disableEl) disableEl.disabled = false;
-    }, durationMs);
-  }
-
   function showSubmitInfoMessage(text) {
     var btn = document.getElementById('submit-claims-btn');
-    showBriefMessage(text, btn, { disableElement: btn });
+    if (window.BriefMessage) {
+      window.BriefMessage.show(text, btn, { durationMs: 1200, disableElement: btn });
+    }
   }
 
   function onClaimedByOtherClick(rowIndex, unitIndex, triggerEl) {
-    var key = SplitifyClaimsState.slotKey(rowIndex, unitIndex);
-    var name = state.claimMap[key] || '';
-    var label = String(name).trim() || 'someone';
-    showBriefMessage('Claimed by ' + label, triggerEl || null);
+    var st = SplitifyClaimsState.getSlotState(state.claimMap, state.userName, rowIndex, unitIndex);
+    var names = SplitifyClaimsState.getOtherClaimants(state.claimMap, state.userName, rowIndex, unitIndex);
+    var label = names.length ? names.join(', ') : 'someone';
+    var text = st === 'shared-by-other' ? ('Shared with ' + label) : ('Claimed by ' + label);
+    if (window.BriefMessage) {
+      window.BriefMessage.show(text, triggerEl || null, { durationMs: 1200 });
+    }
+  }
+
+  function rebuildClaimMapFromSelection() {
+    var otherMap = SplitifyClaimsState.buildClaimMapExcludingUser(state.claims, state.userName);
+    state.claimMap = SplitifyClaimsState.applySelectionToClaimMap(
+      otherMap,
+      state.mySelection,
+      state.userName
+    );
+  }
+
+  function findItemDescription(rowIndex) {
+    var items = (state.bill && state.bill.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].rowIndex === rowIndex) {
+        return normalizeDisplayDescription(items[i].description) || 'Item';
+      }
+    }
+    return 'Item';
+  }
+
+  function findSelectionIndex(rowIndex, unitIndex) {
+    return state.mySelection.findIndex(function (s) {
+      return s.rowIndex === rowIndex && s.unitIndex === unitIndex;
+    });
+  }
+
+  function openShareDialog(rowIndex, unitIndex) {
+    if (!state.userName) {
+      updateClaimStatus('Enter your name first.', true);
+      return;
+    }
+    var st = SplitifyClaimsState.getSlotState(state.claimMap, state.userName, rowIndex, unitIndex);
+    if (st === 'claimed-by-other') return;
+    if (!global.SplitifyShareClaimDialog) return;
+
+    var otherMap = SplitifyClaimsState.buildClaimMapExcludingUser(state.claims, state.userName);
+    var slotInfo = SplitifyClaimsState.getSlotInfo(otherMap, rowIndex, unitIndex);
+    var othersByIndex = {};
+    var idxs = Object.keys(slotInfo.byIndex || {});
+    for (var i = 0; i < idxs.length; i++) {
+      othersByIndex[idxs[i]] = slotInfo.byIndex[idxs[i]];
+    }
+
+    var existingIdx = findSelectionIndex(rowIndex, unitIndex);
+    var existing = existingIdx >= 0 ? state.mySelection[existingIdx] : null;
+    var selectedPortions = [];
+    var portionCount = 2;
+    var othersLocked = Object.keys(othersByIndex).length > 0;
+    var locked = othersLocked;
+
+    if (othersLocked) {
+      portionCount = Math.max(2, slotInfo.portionCount || 2);
+    }
+
+    if (existing && SplitifyClaimsState.isShareSelection(existing)) {
+      selectedPortions = existing.portions.slice();
+      portionCount = existing.portionCount;
+      // Any claimed portion (including mine, pending or saved) locks the count.
+      locked = true;
+    } else if (existing && !SplitifyClaimsState.isShareSelection(existing)) {
+      // Converting a full claim into a share starts at 2 unless others already locked it.
+      selectedPortions = [];
+      if (!othersLocked) portionCount = 2;
+    }
+
+    global.SplitifyShareClaimDialog.open({
+      description: findItemDescription(rowIndex),
+      portionCount: portionCount,
+      locked: locked,
+      currentUser: state.userName,
+      othersByIndex: othersByIndex,
+      selectedPortions: selectedPortions,
+      onConfirm: function (result) {
+        var next = state.mySelection.filter(function (s) {
+          return !(s.rowIndex === rowIndex && s.unitIndex === unitIndex);
+        });
+        if (result.portions && result.portions.length) {
+          next.push({
+            rowIndex: rowIndex,
+            unitIndex: unitIndex,
+            portionCount: result.portionCount,
+            portions: result.portions.slice()
+          });
+        }
+        state.mySelection = next;
+        rebuildClaimMapFromSelection();
+        refreshClaimItems();
+      }
+    });
+  }
+
+  function onSlotLongPress(rowIndex, unitIndex, triggerEl) {
+    var st = SplitifyClaimsState.getSlotState(state.claimMap, state.userName, rowIndex, unitIndex);
+    if (st === 'claimed-by-other') {
+      onClaimedByOtherClick(rowIndex, unitIndex, triggerEl || null);
+      return;
+    }
+    openShareDialog(rowIndex, unitIndex);
   }
 
   function onSlotClick(rowIndex, unitIndex) {
@@ -361,23 +415,20 @@
       return;
     }
     var st = SplitifyClaimsState.getSlotState(state.claimMap, state.userName, rowIndex, unitIndex);
-    var idx = state.mySelection.findIndex(function (s) { return s.rowIndex === rowIndex && s.unitIndex === unitIndex; });
     if (st === 'claimed-by-other') return;
+    if (st === 'shared-by-me' || st === 'shared-by-other') {
+      openShareDialog(rowIndex, unitIndex);
+      return;
+    }
+    var idx = findSelectionIndex(rowIndex, unitIndex);
     if (st === 'claimed-by-me' || idx >= 0) {
-      state.mySelection = state.mySelection.filter(function (s) { return !(s.rowIndex === rowIndex && s.unitIndex === unitIndex); });
+      state.mySelection = state.mySelection.filter(function (sel) {
+        return !(sel.rowIndex === rowIndex && sel.unitIndex === unitIndex);
+      });
     } else {
       state.mySelection.push({ rowIndex: rowIndex, unitIndex: unitIndex });
     }
-    // optimistic remap: use other users' server claims + current user's mySelection only
-    var currentUserNorm = SplitifyClaimsState.normalizeName(state.userName);
-    var otherClaims = (state.claims || []).filter(function (c) {
-      return SplitifyClaimsState.normalizeName(c.userName) !== currentUserNorm;
-    });
-    var claimMap = SplitifyClaimsState.buildClaimMap(otherClaims);
-    for (var i = 0; i < state.mySelection.length; i++) {
-      claimMap[SplitifyClaimsState.slotKey(state.mySelection[i].rowIndex, state.mySelection[i].unitIndex)] = state.userName;
-    }
-    state.claimMap = claimMap;
+    rebuildClaimMapFromSelection();
     renderTab();
   }
 
@@ -395,6 +446,7 @@
           claimMap: state.claimMap,
           currentUser: state.userName,
           onSlotClick: onSlotClick,
+          onSlotLongPress: onSlotLongPress,
           onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
@@ -413,14 +465,23 @@
     }
 
     var subtotal = 0;
-    var byDescription = {};
+    // groupKey -> { description, portions, portionCount, value }
+    var byGroup = {};
     for (var s = 0; s < state.mySelection.length; s++) {
       var slot = state.mySelection[s];
       var item = itemsByRow[slot.rowIndex];
       if (!item) continue;
-      subtotal += effectiveUnitForItem(item);
-      var key = normalizeDisplayDescription(item.description) || 'Item';
-      byDescription[key] = (byDescription[key] || 0) + 1;
+      var unit = effectiveUnitForItem(item);
+      var frac = SplitifyClaimsState.selectionFraction(slot);
+      subtotal += unit * frac;
+      var desc = normalizeDisplayDescription(item.description) || 'Item';
+      var portionCount = SplitifyClaimsState.isShareSelection(slot) ? slot.portionCount : 1;
+      var portions = SplitifyClaimsState.isShareSelection(slot) ? slot.portions.length : 1;
+      var groupKey = desc.toLowerCase() + '|p' + portionCount + '|' + Math.round(unit * 100);
+      if (!byGroup[groupKey]) {
+        byGroup[groupKey] = { description: desc, portions: 0, portionCount: portionCount };
+      }
+      byGroup[groupKey].portions += portions;
     }
 
     var billTotal = 0;
@@ -432,13 +493,16 @@
     var tipShare = billTotal > 0 ? tipAmount * (subtotal / billTotal) : 0;
     var totalWithTip = subtotal + tipShare;
 
-    var names = Object.keys(byDescription).sort();
+    var names = Object.keys(byGroup).sort();
     var listHtml = '';
     if (!names.length) {
       listHtml = '<div class="summary-subline">No items selected yet.</div>';
     } else {
       for (var n = 0; n < names.length; n++) {
-        listHtml += '<div class="summary-subline">' + escapeHtml(names[n]) + ' (' + byDescription[names[n]] + ')</div>';
+        var g = byGroup[names[n]];
+        var qty = SplitifyClaimsState.formatQuantityLabel(g.portions, g.portionCount);
+        var qtyText = qty ? ' ' + qty : '';
+        listHtml += '<div class="summary-subline">' + escapeHtml(g.description) + qtyText + '</div>';
       }
     }
 
@@ -452,66 +516,98 @@
       '</ul>';
   }
 
-  function computeSummaryFromState() {
-    var bill = state.bill;
-    var claims = state.claims;
+  function accumulateClaimFraction(bucket, userName, portions, portionCount) {
+    var key = userName + '\0' + portionCount;
+    if (!bucket[key]) bucket[key] = { portions: 0, portionCount: portionCount };
+    bucket[key].portions += portions;
+  }
+
+  function buildSummaryFromClaims(bill, claims) {
     if (!bill) return null;
-    var claimMap = {};
-    for (var c = 0; c < claims.length; c++) {
-      claimMap[claims[c].rowIndex + '_' + claims[c].unitIndex] = claims[c].userName;
-    }
+    var claimMap = SplitifyClaimsState.buildClaimMap(claims || []);
     var billTotal = 0;
-    for (var x = 0; x < bill.items.length; x++) billTotal += bill.items[x].total_price || 0;
+    var items = bill.items || [];
+    for (var x = 0; x < items.length; x++) billTotal += items[x].total_price || 0;
     var totalPaid = bill.metadata && bill.metadata.totalPaid != null ? bill.metadata.totalPaid : billTotal;
+    if (totalPaid == null) totalPaid = billTotal;
     var tip = Math.max(0, totalPaid - billTotal);
     var tipPercent = billTotal > 0 ? (tip / billTotal) * 100 : 0;
     var byUserSlots = {};
     var byItem = [];
-    for (var i = 0; i < bill.items.length; i++) {
-      var it = bill.items[i];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
       var claimed = 0;
-      var itemClaimByUser = {};
-      for (var u = 0; u < it.quantity; u++) {
-        var name = claimMap[it.rowIndex + '_' + u];
-        if (!name) continue;
-        claimed++;
-        itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
-        if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
-        byUserSlots[name].subtotal += effectiveUnitForItem(it);
+      var itemClaimBucket = {};
+      var unitPrice = effectiveUnitForItem(it);
+      var q = parseInt(it.quantity, 10) || 0;
+      for (var u = 0; u < q; u++) {
+        var info = SplitifyClaimsState.getSlotInfo(claimMap, it.rowIndex, u);
+        var idxs = Object.keys(info.byIndex || {});
+        if (!idxs.length) continue;
+        var portionCount = Math.max(1, info.portionCount || 1);
+        var byUserOnSlot = {};
+        for (var pi = 0; pi < idxs.length; pi++) {
+          var uname = info.byIndex[idxs[pi]];
+          byUserOnSlot[uname] = (byUserOnSlot[uname] || 0) + 1;
+        }
+        claimed += idxs.length / portionCount;
+        var slotUsers = Object.keys(byUserOnSlot);
+        for (var su = 0; su < slotUsers.length; su++) {
+          var nm = slotUsers[su];
+          var parts = byUserOnSlot[nm];
+          accumulateClaimFraction(itemClaimBucket, nm, parts, portionCount);
+          if (!byUserSlots[nm]) byUserSlots[nm] = { subtotal: 0 };
+          byUserSlots[nm].subtotal += (parts / portionCount) * unitPrice;
+        }
       }
       var claimsByUser = [];
-      var itemUserNames = Object.keys(itemClaimByUser).sort();
-      for (var iu = 0; iu < itemUserNames.length; iu++) {
-        claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
+      var bucketKeys = Object.keys(itemClaimBucket).sort();
+      for (var bk = 0; bk < bucketKeys.length; bk++) {
+        var userName = bucketKeys[bk].split('\0')[0];
+        var entry = itemClaimBucket[bucketKeys[bk]];
+        claimsByUser.push({
+          userName: userName,
+          count: entry.portions / entry.portionCount,
+          portions: entry.portions,
+          portionCount: entry.portionCount
+        });
       }
       byItem.push({
-        description: normalizeDisplayDescription(it.description), category: it.category,
-        quantity: it.quantity, claimed: claimed,
-        unclaimed: Math.max(0, it.quantity - claimed),
-        unitPrice: effectiveUnitForItem(it), totalPrice: it.total_price || 0,
+        description: normalizeDisplayDescription(it.description),
+        category: it.category,
+        quantity: it.quantity,
+        claimed: claimed,
+        unclaimed: Math.max(0, q - claimed),
+        unitPrice: unitPrice,
+        totalPrice: it.total_price || 0,
         claimsByUser: claimsByUser
       });
     }
     var byUser = [];
     var names = Object.keys(byUserSlots).sort();
     for (var n = 0; n < names.length; n++) {
-      var nm = names[n];
-      var sub = byUserSlots[nm].subtotal;
+      var name = names[n];
+      var sub = byUserSlots[name].subtotal;
       var tipShare = billTotal > 0 ? tip * (sub / billTotal) : 0;
-      byUser.push({ userName: nm, subtotal: sub, tipShare: tipShare, totalWithTip: sub + tipShare });
+      byUser.push({ userName: name, subtotal: sub, tipShare: tipShare, totalWithTip: sub + tipShare });
     }
-    return { billId: bill.billId, billTotal: billTotal, totalPaid: totalPaid, tipAmount: tip, tipPercent: tipPercent, byUser: byUser, byItem: byItem };
+    return {
+      billId: bill.billId,
+      billTotal: billTotal,
+      totalPaid: totalPaid,
+      tipAmount: tip,
+      tipPercent: tipPercent,
+      byUser: byUser,
+      byItem: byItem
+    };
+  }
+
+  function computeSummaryFromState() {
+    return buildSummaryFromClaims(state.bill, state.claims);
   }
 
   function selectionUnchanged() {
-    var cur = state.mySelection;
-    var orig = state.mySelectionOriginal;
-    if (cur.length !== orig.length) return false;
-    var makeKey = function (s) { return s.rowIndex + '_' + s.unitIndex; };
-    var origKeys = {};
-    for (var i = 0; i < orig.length; i++) origKeys[makeKey(orig[i])] = true;
-    for (var j = 0; j < cur.length; j++) { if (!origKeys[makeKey(cur[j])]) return false; }
-    return true;
+    return SplitifyClaimsState.selectionUnchanged(state.mySelection, state.mySelectionOriginal);
   }
 
   function submitClaims() {
@@ -544,7 +640,7 @@
     SplitifyAPI.submitClaimsByBillId({
       billId: state.billId,
       userName: state.userName,
-      claims: state.mySelection
+      claims: SplitifyClaimsState.toSubmitPayload(state.mySelection)
     }).then(function (res) {
       state.claims = res.claims || [];
       state.claimMap = SplitifyClaimsState.buildClaimMap(state.claims);
@@ -617,72 +713,7 @@
   }
 
   function buildSummaryFromState() {
-    var bill = state.bill;
-    var claims = state.claims;
-    var items = bill.items || [];
-    var totalPaid = bill.metadata.totalPaid != null ? bill.metadata.totalPaid : 0;
-
-    var claimMap = {};
-    for (var c = 0; c < claims.length; c++) {
-      claimMap[claims[c].rowIndex + '_' + claims[c].unitIndex] = claims[c].userName;
-    }
-
-    var billTotal = 0;
-    for (var x = 0; x < items.length; x++) billTotal += items[x].total_price || 0;
-    if (totalPaid == null) totalPaid = billTotal;
-    var tip = Math.max(0, totalPaid - billTotal);
-    var tipPercent = billTotal > 0 ? (tip / billTotal) * 100 : 0;
-
-    var byUserSlots = {};
-    var byItem = [];
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var claimed = 0;
-      var itemClaimByUser = {};
-      for (var u = 0; u < it.quantity; u++) {
-        var key = it.rowIndex + '_' + u;
-        var name = claimMap[key];
-        if (!name) continue;
-        claimed++;
-        itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
-        if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
-        byUserSlots[name].subtotal += effectiveUnitForItem(it);
-      }
-      var claimsByUser = [];
-      var itemUserNames = Object.keys(itemClaimByUser).sort();
-      for (var iu = 0; iu < itemUserNames.length; iu++) {
-        claimsByUser.push({ userName: itemUserNames[iu], count: itemClaimByUser[itemUserNames[iu]] });
-      }
-      byItem.push({
-        description: normalizeDisplayDescription(it.description),
-        category:    it.category,
-        quantity:    it.quantity,
-        claimed:     claimed,
-        unclaimed:   Math.max(0, it.quantity - claimed),
-        unitPrice:   effectiveUnitForItem(it),
-        totalPrice:  it.total_price || 0,
-        claimsByUser: claimsByUser
-      });
-    }
-
-    var byUser = [];
-    var names = Object.keys(byUserSlots).sort();
-    for (var n = 0; n < names.length; n++) {
-      var nm = names[n];
-      var sub = byUserSlots[nm].subtotal;
-      var tipShare = billTotal > 0 ? tip * (sub / billTotal) : 0;
-      byUser.push({ userName: nm, subtotal: sub, tipShare: tipShare, totalWithTip: sub + tipShare });
-    }
-
-    return {
-      billId:     bill.billId,
-      billTotal:  billTotal,
-      totalPaid:  totalPaid,
-      tipAmount:  tip,
-      tipPercent: tipPercent,
-      byUser:     byUser,
-      byItem:     byItem
-    };
+    return buildSummaryFromClaims(state.bill, state.claims);
   }
 
   function renderSummaryTab(mount) {

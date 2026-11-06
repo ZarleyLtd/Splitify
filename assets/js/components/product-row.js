@@ -1,5 +1,7 @@
 (function (global) {
   var IMAGE_BASE = 'assets/images/';
+  var LONG_PRESS_MS = 450;
+  var MOVE_TOLERANCE = 12;
 
   /** Exact category slug (lowercase) -> SVG filename in assets/images */
   var SLUG_TO_FILE = {
@@ -122,6 +124,104 @@
     return IMAGE_BASE + defaultAssetFile(category);
   }
 
+  function badgeHtml(st, claimMap, currentUser, rowIndex, unitIndex) {
+    if (st === 'claimed-by-me') {
+      return '<span class="claims-slot-btn__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>';
+    }
+    if (st === 'shared-by-me' || st === 'shared-by-other') {
+      var info = SplitifyClaimsState.getSlotInfo(claimMap, rowIndex, unitIndex);
+      var filled;
+      if (st === 'shared-by-me') {
+        filled = SplitifyClaimsState.getMyPortions(claimMap, currentUser, rowIndex, unitIndex);
+      } else {
+        filled = Object.keys(info.byIndex || {}).map(function (k) { return parseInt(k, 10); });
+      }
+      if (global.SplitifyShareClaimDialog && typeof global.SplitifyShareClaimDialog.buildMiniPieBadge === 'function') {
+        return global.SplitifyShareClaimDialog.buildMiniPieBadge(info.portionCount, filled);
+      }
+      return '<span class="claims-slot-btn__pie claims-slot-btn__pie--fallback" aria-hidden="true"></span>';
+    }
+    return '';
+  }
+
+  function ariaForState(st, otherNames) {
+    if (st === 'claimed-by-me') return 'Claimed by me';
+    if (st === 'shared-by-me') return 'Shared claim — tap to edit portions';
+    if (st === 'claimed-by-other') return 'Claimed by ' + (otherNames[0] || 'another user');
+    if (st === 'shared-by-other') {
+      return otherNames.length
+        ? ('Partially shared with ' + otherNames.join(', ') + ' — tap to claim a portion')
+        : 'Partially shared — tap to claim a portion';
+    }
+    return 'Available to claim';
+  }
+
+  function bindLongPress(buttonEl, onTap, onLongPress) {
+    var timer = null;
+    var startX = 0;
+    var startY = 0;
+    var longFired = false;
+    var pointerId = null;
+
+    function clearTimer() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
+
+    function onPointerDown(e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      longFired = false;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      clearTimer();
+      timer = setTimeout(function () {
+        timer = null;
+        longFired = true;
+        if (onLongPress) onLongPress();
+      }, LONG_PRESS_MS);
+      try {
+        buttonEl.setPointerCapture(e.pointerId);
+      } catch (err) { /* ignore */ }
+    }
+
+    function onPointerMove(e) {
+      if (pointerId != null && e.pointerId !== pointerId) return;
+      if (!timer) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      if (dx * dx + dy * dy > MOVE_TOLERANCE * MOVE_TOLERANCE) clearTimer();
+    }
+
+    function onPointerUp(e) {
+      if (pointerId != null && e.pointerId !== pointerId) return;
+      clearTimer();
+      pointerId = null;
+      if (longFired) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (onTap) onTap();
+    }
+
+    function onPointerCancel() {
+      clearTimer();
+      pointerId = null;
+      longFired = false;
+    }
+
+    buttonEl.addEventListener('pointerdown', onPointerDown);
+    buttonEl.addEventListener('pointermove', onPointerMove);
+    buttonEl.addEventListener('pointerup', onPointerUp);
+    buttonEl.addEventListener('pointercancel', onPointerCancel);
+    buttonEl.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    });
+  }
+
   function render(opts) {
     opts = opts || {};
     var row = document.createElement('div');
@@ -143,31 +243,32 @@
       btn.className = 'claims-slot-btn';
       var st = SplitifyClaimsState.getSlotState(opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
       btn.className += ' ' + st;
-      var otherName = '';
-      if (st === 'claimed-by-other' && opts.claimMap) {
-        otherName = String(opts.claimMap[SplitifyClaimsState.slotKey(s.rowIndex, s.unitIndex)] || '').trim();
-      }
-      btn.setAttribute(
-        'aria-label',
-        st === 'claimed-by-me'
-          ? 'Claimed by me'
-          : (st === 'claimed-by-other'
-            ? ('Claimed by ' + (otherName || 'another user'))
-            : 'Available to claim')
-      );
-      btn.title = st === 'claimed-by-me' ? 'Claimed by me' : (st === 'claimed-by-other' ? ('Claimed by ' + (otherName || 'another user')) : 'Available');
+      var otherNames = SplitifyClaimsState.getOtherClaimants(opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
+      btn.setAttribute('aria-label', ariaForState(st, otherNames));
+      btn.title = ariaForState(st, otherNames);
       btn.innerHTML = '<img class="claims-slot-btn__img" src="' + resolveImageSrc(opts.category, opts.description, opts.productIcons) + '" alt="">' +
-        (st === 'claimed-by-me' ? '<span class="claims-slot-btn__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>' : '');
+        badgeHtml(st, opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
       if (opts.readOnly) btn.disabled = true;
-      (function (rowIndex, unitIndex, slotState, buttonEl) {
-        buttonEl.addEventListener('click', function () {
-          if (slotState === 'claimed-by-other') {
-            if (opts.onClaimedByOtherClick) opts.onClaimedByOtherClick(rowIndex, unitIndex, buttonEl);
-            return;
+      (function (rowIndex, unitIndex, slotState, buttonEl, names) {
+        if (opts.readOnly) return;
+        bindLongPress(
+          buttonEl,
+          function () {
+            if (slotState === 'claimed-by-other') {
+              if (opts.onClaimedByOtherClick) opts.onClaimedByOtherClick(rowIndex, unitIndex, buttonEl);
+              return;
+            }
+            if (opts.onSlotClick) opts.onSlotClick(rowIndex, unitIndex);
+          },
+          function () {
+            if (opts.onSlotLongPress) opts.onSlotLongPress(rowIndex, unitIndex, buttonEl);
+            else if (slotState === 'claimed-by-other' && opts.onClaimedByOtherClick) {
+              opts.onClaimedByOtherClick(rowIndex, unitIndex, buttonEl);
+            }
           }
-          if (opts.onSlotClick) opts.onSlotClick(rowIndex, unitIndex);
-        });
-      })(s.rowIndex, s.unitIndex, st, btn);
+        );
+        void names;
+      })(s.rowIndex, s.unitIndex, st, btn, otherNames);
       chips.appendChild(btn);
     }
     stripWrap.appendChild(chips);

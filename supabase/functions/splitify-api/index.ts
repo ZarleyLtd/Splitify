@@ -183,6 +183,22 @@ type ClaimRow = {
   userName: string;
   rowIndex: number;
   unitIndex: number;
+  portionCount: number;
+  portionIndex: number;
+};
+
+type ClaimSubmitEntry = {
+  rowIndex: number;
+  unitIndex: number;
+  portionCount?: number;
+  portions?: number[];
+};
+
+type ResolvedClaimRow = {
+  rowIndex: number;
+  unitIndex: number;
+  portionCount: number;
+  portionIndex: number;
 };
 
 async function getActiveBillModelFromConfig(
@@ -307,7 +323,9 @@ async function getClaimsByBillId(
   if (!billId) throw new Error("Missing billId");
   const { data, error } = await sb
     .from("claims")
-    .select("bill_id, user_name, row_index, unit_index")
+    .select(
+      "bill_id, user_name, row_index, unit_index, portion_count, portion_index",
+    )
     .eq("bill_id", billId)
     .order("id", { ascending: true });
   if (error) throw new Error(error.message);
@@ -317,15 +335,36 @@ async function getClaimsByBillId(
       user_name: string;
       row_index: number;
       unit_index: number;
+      portion_count?: number;
+      portion_index?: number;
     };
+    const portionCount = Math.max(
+      1,
+      parseInt(String(row.portion_count ?? 1), 10) || 1,
+    );
     out.push({
       billId,
       userName: String(row.user_name || ""),
       rowIndex: parseInt(String(row.row_index), 10) || 0,
       unitIndex: parseInt(String(row.unit_index), 10) || 0,
+      portionCount,
+      portionIndex: parseInt(String(row.portion_index ?? 0), 10) || 0,
     });
   }
   return out;
+}
+
+function accumulateClaimFraction(
+  bucket: Record<string, { portions: number; portionCount: number }>,
+  userName: string,
+  portions: number,
+  portionCount: number,
+) {
+  const key = `${userName}\0${portionCount}`;
+  if (!bucket[key]) {
+    bucket[key] = { portions: 0, portionCount };
+  }
+  bucket[key].portions += portions;
 }
 
 async function getBillSummaryById(
@@ -335,9 +374,11 @@ async function getBillSummaryById(
   if (!billId) throw new Error("Missing billId");
   const bill = await getBillById(sb, billId);
   const claims = await getClaimsByBillId(sb, billId);
-  const claimMap: Record<string, string> = {};
+  const claimsBySlot: Record<string, ClaimRow[]> = {};
   for (const c of claims) {
-    claimMap[`${c.rowIndex}_${c.unitIndex}`] = c.userName;
+    const key = `${c.rowIndex}_${c.unitIndex}`;
+    if (!claimsBySlot[key]) claimsBySlot[key] = [];
+    claimsBySlot[key].push(c);
   }
   const billTotal = sumBillTotal(bill.items);
   const totalPaid = bill.metadata.totalPaid != null
@@ -351,21 +392,42 @@ async function getBillSummaryById(
 
   for (const it of bill.items) {
     let claimed = 0;
-    const itemClaimByUser: Record<string, number> = {};
+    const itemClaimBucket: Record<
+      string,
+      { portions: number; portionCount: number }
+    > = {};
     const q = parseInt(String(it.quantity), 10) || 0;
+    const unitPrice = parseFloat(String(it.unit_price)) || 0;
     for (let u = 0; u < q; u++) {
       const key = `${it.rowIndex}_${u}`;
-      const name = claimMap[key];
-      if (!name) continue;
-      claimed++;
-      itemClaimByUser[name] = (itemClaimByUser[name] || 0) + 1;
-      if (!byUserSlots[name]) byUserSlots[name] = { subtotal: 0 };
-      byUserSlots[name].subtotal += parseFloat(String(it.unit_price)) || 0;
+      const slotClaims = claimsBySlot[key] || [];
+      if (!slotClaims.length) continue;
+      const portionCount = Math.max(1, slotClaims[0].portionCount || 1);
+      const byUserOnSlot: Record<string, number> = {};
+      for (const sc of slotClaims) {
+        byUserOnSlot[sc.userName] = (byUserOnSlot[sc.userName] || 0) + 1;
+      }
+      claimed += slotClaims.length / portionCount;
+      for (const nm of Object.keys(byUserOnSlot)) {
+        const parts = byUserOnSlot[nm];
+        accumulateClaimFraction(itemClaimBucket, nm, parts, portionCount);
+        if (!byUserSlots[nm]) byUserSlots[nm] = { subtotal: 0 };
+        byUserSlots[nm].subtotal += (parts / portionCount) * unitPrice;
+      }
     }
-    const claimsByUser: Array<{ userName: string; count: number }> = [];
-    const itemUserNames = Object.keys(itemClaimByUser).sort();
-    for (const nm of itemUserNames) {
-      claimsByUser.push({ userName: nm, count: itemClaimByUser[nm] });
+    const claimsByUser: Array<
+      { userName: string; count: number; portions: number; portionCount: number }
+    > = [];
+    const bucketKeys = Object.keys(itemClaimBucket).sort();
+    for (const bk of bucketKeys) {
+      const userName = bk.split("\0")[0];
+      const entry = itemClaimBucket[bk];
+      claimsByUser.push({
+        userName,
+        count: entry.portions / entry.portionCount,
+        portions: entry.portions,
+        portionCount: entry.portionCount,
+      });
     }
     byItem.push({
       description: it.description,
@@ -373,7 +435,7 @@ async function getBillSummaryById(
       quantity: it.quantity,
       claimed,
       unclaimed: Math.max(0, q - claimed),
-      unitPrice: parseFloat(String(it.unit_price)) || 0,
+      unitPrice,
       totalPrice: parseFloat(String(it.total_price)) || 0,
       claimsByUser,
     });
@@ -673,7 +735,52 @@ async function updateBillTotalPaid(
   };
 }
 
-/** Port of submitClaimsByBillId resolution logic (backend/code.gs) */
+function normalizeSubmitEntry(cl: ClaimSubmitEntry): {
+  rowIndex: number;
+  unitIndex: number;
+  portionCount: number;
+  portions: number[];
+  isShare: boolean;
+} {
+  const rowIndex = parseInt(String(cl.rowIndex), 10) || 0;
+  const unitIndex = parseInt(String(cl.unitIndex), 10) || 0;
+  const rawPortions = Array.isArray(cl.portions) ? cl.portions : null;
+  const requestedCount = parseInt(String(cl.portionCount ?? 1), 10) || 1;
+  if (rawPortions && rawPortions.length > 0) {
+    const portionCount = Math.max(2, Math.min(10, requestedCount));
+    const seen: Record<number, boolean> = {};
+    const portions: number[] = [];
+    for (const p of rawPortions) {
+      const idx = parseInt(String(p), 10);
+      if (isNaN(idx) || idx < 0 || idx >= portionCount) {
+        throw new Error("Invalid portion index: " + p);
+      }
+      if (seen[idx]) continue;
+      seen[idx] = true;
+      portions.push(idx);
+    }
+    portions.sort((a, b) => a - b);
+    if (!portions.length) {
+      throw new Error("Share claim requires at least one portion");
+    }
+    return {
+      rowIndex,
+      unitIndex,
+      portionCount,
+      portions,
+      isShare: true,
+    };
+  }
+  return {
+    rowIndex,
+    unitIndex,
+    portionCount: 1,
+    portions: [0],
+    isShare: false,
+  };
+}
+
+/** Port of submitClaimsByBillId resolution logic (backend/code.gs), extended for portions. */
 function resolveClaimsSubmission(
   billItems: Array<{
     rowIndex: number;
@@ -684,8 +791,8 @@ function resolveClaimsSubmission(
   }>,
   sheetClaims: ClaimRow[],
   userName: string,
-  claims: Array<{ rowIndex: number; unitIndex: number }>,
-) {
+  claims: ClaimSubmitEntry[],
+): ResolvedClaimRow[] {
   const validSlots: Record<string, boolean> = {};
   const slotInfo: Record<
     string,
@@ -710,34 +817,105 @@ function resolveClaimsSubmission(
     }
   }
 
-  for (const c of claims) {
+  const normalized = claims.map(normalizeSubmitEntry);
+  for (const c of normalized) {
     const key = `${c.rowIndex}_${c.unitIndex}`;
     if (!validSlots[key]) throw new Error("Invalid claim slot: " + key);
   }
 
   const userLower = normalizeUserName(userName);
-  const takenByOthers: Record<string, boolean> = {};
+  const othersBySlot: Record<string, ClaimRow[]> = {};
+  const otherTakenFull: Record<string, boolean> = {};
   for (const row of sheetClaims) {
     if (normalizeUserName(row.userName) === userLower) continue;
-    takenByOthers[`${row.rowIndex}_${row.unitIndex}`] = true;
+    const slotId = `${row.rowIndex}_${row.unitIndex}`;
+    if (!othersBySlot[slotId]) othersBySlot[slotId] = [];
+    othersBySlot[slotId].push(row);
+    if ((row.portionCount || 1) === 1) otherTakenFull[slotId] = true;
   }
 
-  const resolvedSlots: Record<string, boolean> = {};
-  const resolvedClaims: Array<{ rowIndex: number; unitIndex: number }> = [];
+  const resolvedFullSlots: Record<string, boolean> = {};
+  const resolvedPortionKeys: Record<string, boolean> = {};
+  const resolvedClaims: ResolvedClaimRow[] = [];
 
-  for (const cl of claims) {
+  for (const cl of normalized) {
     const requestedSlot = `${cl.rowIndex}_${cl.unitIndex}`;
     const requestedInfo = slotInfo[requestedSlot];
     const descriptionForError = requestedInfo?.description || "item";
+
+    if (cl.isShare) {
+      const others = othersBySlot[requestedSlot] || [];
+      if (otherTakenFull[requestedSlot]) {
+        throw new Error(
+          "Another person has claimed the " + descriptionForError +
+            ". Please refresh and try again.",
+        );
+      }
+      if (others.length) {
+        const existingCount = others[0].portionCount || 1;
+        if (existingCount === 1) {
+          throw new Error(
+            "Another person has claimed the " + descriptionForError +
+              ". Please refresh and try again.",
+          );
+        }
+        if (existingCount !== cl.portionCount) {
+          throw new Error(
+            "Portion count for " + descriptionForError +
+              " is locked at " + existingCount +
+              ". Please refresh and try again.",
+          );
+        }
+        for (const o of others) {
+          const pk = `${requestedSlot}_${o.portionIndex}`;
+          if (cl.portions.indexOf(o.portionIndex) >= 0) {
+            throw new Error(
+              "Another person has claimed a portion of the " +
+                descriptionForError +
+                ". Please refresh and try again.",
+            );
+          }
+          resolvedPortionKeys[pk] = true;
+        }
+      }
+      for (const p of cl.portions) {
+        const pk = `${requestedSlot}_${p}`;
+        if (resolvedPortionKeys[pk] || resolvedFullSlots[requestedSlot]) {
+          throw new Error(
+            "Another person has claimed a portion of the " +
+              descriptionForError +
+              ". Please refresh and try again.",
+          );
+        }
+        resolvedPortionKeys[pk] = true;
+        resolvedClaims.push({
+          rowIndex: cl.rowIndex,
+          unitIndex: cl.unitIndex,
+          portionCount: cl.portionCount,
+          portionIndex: p,
+        });
+      }
+      continue;
+    }
+
+    // Full claim: remap fungible wholly-free units only.
     let chosenSlot = requestedSlot;
-    if (takenByOthers[chosenSlot] || resolvedSlots[chosenSlot]) {
+    const slotBlocked = (slotId: string) => {
+      if (resolvedFullSlots[slotId]) return true;
+      const others = othersBySlot[slotId] || [];
+      if (others.length) return true;
+      for (let i = 0; i < 10; i++) {
+        if (resolvedPortionKeys[`${slotId}_${i}`]) return true;
+      }
+      return false;
+    };
+    if (slotBlocked(chosenSlot)) {
       const candidates = requestedInfo
         ? groupSlots[requestedInfo.groupKey] || []
         : [];
       chosenSlot = "";
       for (const candidate of candidates) {
-        if (takenByOthers[candidate]) continue;
-        if (resolvedSlots[candidate]) continue;
+        if (slotBlocked(candidate)) continue;
         chosenSlot = candidate;
         break;
       }
@@ -748,11 +926,13 @@ function resolveClaimsSubmission(
         );
       }
     }
-    resolvedSlots[chosenSlot] = true;
+    resolvedFullSlots[chosenSlot] = true;
     const split = chosenSlot.split("_");
     resolvedClaims.push({
       rowIndex: parseInt(split[0], 10) || 0,
       unitIndex: parseInt(split[1], 10) || 0,
+      portionCount: 1,
+      portionIndex: 0,
     });
   }
 
@@ -763,7 +943,7 @@ async function submitClaimsByBillIdWithClient(
   client: Client,
   billId: string,
   userName: string,
-  claims: Array<{ rowIndex: number; unitIndex: number }>,
+  claims: ClaimSubmitEntry[],
 ) {
   await client.queryArray`BEGIN`;
   try {
@@ -785,8 +965,11 @@ async function submitClaimsByBillIdWithClient(
       user_name: string;
       row_index: number;
       unit_index: number;
+      portion_count: number;
+      portion_index: number;
     }>`
-      SELECT user_name, row_index, unit_index FROM splitify.claims WHERE bill_id = ${billId}
+      SELECT user_name, row_index, unit_index, portion_count, portion_index
+      FROM splitify.claims WHERE bill_id = ${billId}
     `;
 
     const billItemsForResolve = (itemsRes.rows || []).map((row) => {
@@ -811,6 +994,17 @@ async function submitClaimsByBillIdWithClient(
         parseInt(String((r as { row_index: number }).row_index), 10) || 0,
       unitIndex:
         parseInt(String((r as { unit_index: number }).unit_index), 10) || 0,
+      portionCount: Math.max(
+        1,
+        parseInt(
+          String((r as { portion_count: number }).portion_count ?? 1),
+          10,
+        ) || 1,
+      ),
+      portionIndex: parseInt(
+        String((r as { portion_index: number }).portion_index ?? 0),
+        10,
+      ) || 0,
     }));
 
     const resolved = resolveClaimsSubmission(
@@ -828,8 +1022,13 @@ async function submitClaimsByBillIdWithClient(
 
     for (const rc of resolved) {
       await client.queryObject`
-        INSERT INTO splitify.claims (bill_id, user_name, row_index, unit_index)
-        VALUES (${billId}, ${userName}, ${rc.rowIndex}, ${rc.unitIndex})
+        INSERT INTO splitify.claims (
+          bill_id, user_name, row_index, unit_index, portion_count, portion_index
+        )
+        VALUES (
+          ${billId}, ${userName}, ${rc.rowIndex}, ${rc.unitIndex},
+          ${rc.portionCount}, ${rc.portionIndex}
+        )
       `;
     }
 
@@ -845,7 +1044,7 @@ async function submitClaimsByBillId(
   body: {
     billId?: string;
     userName?: string;
-    claims?: Array<{ rowIndex: number; unitIndex: number }>;
+    claims?: ClaimSubmitEntry[];
   },
 ) {
   const billId = body.billId;
@@ -979,7 +1178,7 @@ async function doPost(
         body as {
           billId?: string;
           userName?: string;
-          claims?: Array<{ rowIndex: number; unitIndex: number }>;
+          claims?: ClaimSubmitEntry[];
         },
       );
     } else if (action === "deleteBillById") {

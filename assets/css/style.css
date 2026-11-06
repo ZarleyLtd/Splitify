@@ -835,6 +835,164 @@ h1 { color: var(--accent); }
   filter: grayscale(1);
   cursor: pointer;
 }
+.claims-slot-btn.shared-by-me {
+  opacity: 1;
+  background: rgba(73, 98, 123, 0.22);
+  border-color: rgba(73, 98, 123, 0.8);
+  color: #1d3245;
+}
+.claims-slot-btn.shared-by-other {
+  opacity: 0.7;
+  filter: grayscale(0.35);
+  cursor: pointer;
+}
+.claims-slot-btn__pie {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #2e6d54;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.claims-slot-btn__pie svg {
+  display: block;
+}
+.claims-slot-btn.shared-by-other .claims-slot-btn__pie {
+  background: #6b7280;
+}
+.claims-slot-btn__pie--fallback {
+  background: #2e6d54;
+}
+
+/* Share claim dialog */
+.share-claim-dialog {
+  display: none;
+  position: fixed;
+  margin: auto;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: var(--paper, #f7f1e8);
+  color: var(--text, #2b241c);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  z-index: 1400;
+  width: min(92vw, 360px);
+  max-height: min(90vh, 640px);
+}
+.share-claim-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.share-claim-dialog::backdrop {
+  background: rgba(12, 10, 9, 0.55);
+}
+.share-claim-dialog__inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(90vh, 640px);
+}
+.share-claim-dialog__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.share-claim-dialog__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.share-claim-dialog__close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+}
+.share-claim-dialog__body {
+  padding: 12px 16px 8px;
+  overflow: auto;
+}
+.share-claim-dialog__note {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+.share-claim-dialog__count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.share-claim-dialog__count-label {
+  min-width: 7rem;
+  text-align: center;
+  font-weight: 600;
+}
+.share-claim-dialog__count-btn {
+  min-width: 2.5rem;
+  padding: 0.35rem 0.6rem;
+}
+.share-claim-dialog__pie-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+  touch-action: manipulation;
+}
+.share-pie__portion {
+  cursor: pointer;
+}
+.share-pie__portion--other {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.share-pie__portion--other path {
+  stroke: #1f2937;
+  stroke-width: 2.5;
+  filter: grayscale(0.2);
+}
+.share-pie__claimed-initial {
+  fill: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: Georgia, "Times New Roman", serif;
+  pointer-events: none;
+  user-select: none;
+}
+.share-pie__portion--mine path {
+  stroke: #1d3245;
+  stroke-width: 3;
+}
+.share-claim-dialog__summary {
+  text-align: center;
+  margin: 0 0 4px;
+}
+.share-claim-dialog__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+.share-claim-dialog__clear {
+  margin-right: auto;
+}
 
 .summary-tab-bar {
   display: flex;
@@ -994,26 +1152,20 @@ h1 { color: var(--accent); }
   display: block;
 }
 
-/* Brief message pattern: see .cursor/rules/brief-message.mdc */
-.brief-message {
-  position: fixed;
-  z-index: 600;
-  transform: translate(-50%, -50%);
-  padding: 7px 16px;
-  background: rgba(24, 20, 17, 0.93);
-  color: #efe6d4;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  max-width: min(92vw, 18rem);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+/* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
+@import url('brief-message.css');
+
+.app--bill .brief-message {
+  --brief-msg-bg: rgba(24, 20, 17, 0.93);
+  --brief-msg-color: #efe6d4;
+  --brief-msg-border: none;
+  --brief-msg-radius: 999px;
+  --brief-msg-padding: 7px 16px;
+  --brief-msg-font-size: 14px;
+  --brief-msg-font-weight: 600;
+  --brief-msg-max-width: min(92vw, 18rem);
+  --brief-msg-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
-.brief-message--above { transform: translate(-50%, -100%); }
-.brief-message--below { transform: translate(-50%, 0); }
 
 .working-indicator {
   position: fixed;
