@@ -1,0 +1,37 @@
+---
+description: Bump client asset cache-bust version when committing/pushing CSS/JS/HTML changes
+alwaysApply: true
+---
+
+# Asset cache-bust on commit/push
+
+When the user asks to **commit** and/or **push**, if the commit includes any client asset changes, bump the cache-bust version in the same commit.
+
+## Treat as client asset changes
+
+- `assets/css/**`
+- `assets/js/**`
+- `*.html` script/`link` tags that load local assets
+- `site.webmanifest` (if linked with `?v=`)
+
+Do **not** bump for backend-only changes (e.g. only `supabase/functions/**` or migrations) unless HTML/CSS/JS also change.
+
+## How to bump
+
+1. Set a new value in [`assets/asset-version.js`](assets/asset-version.js) (`SPLITIFY_ASSET_V`). Prefer a compact stamp like `YYYYMMDD` + a letter (`20261106d`).
+2. Replace **every** matching `?v=...` with that same value in:
+   - `bill.html`, `index.html`, `admin.html`
+   - `@import` in `assets/css/style.css` (e.g. `brief-message.css?v=...`)
+3. Keep all `?v=` values identical for a given ship; never leave mixed versions.
+
+## Example
+
+```javascript
+// assets/asset-version.js
+global.SPLITIFY_ASSET_V = '20261106d';
+```
+
+```html
+<link rel="stylesheet" href="assets/css/style.css?v=20261106d">
+<script src="assets/js/pages/bill.js?v=20261106d"></script>
+```
