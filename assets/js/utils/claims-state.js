@@ -154,8 +154,11 @@
   }
 
   function formatQuantityLabel(portions, portionCount) {
-    var p = parseInt(portions, 10) || 0;
-    var d = Math.max(1, parseInt(portionCount, 10) || 1);
+    var p = Math.round(Number(portions));
+    var d = Math.round(Number(portionCount));
+    if (isNaN(p) || p < 0) p = 0;
+    if (isNaN(d) || d < 1) d = 1;
+    // Keep the claimed share denominator as-is (e.g. 4/6, never 2/3).
     if (d === 1) {
       if (p <= 1) return '';
       return 'x' + p;
@@ -164,8 +167,10 @@
   }
 
   function formatClaimCountLabel(portions, portionCount) {
-    var p = parseInt(portions, 10) || 0;
-    var d = Math.max(1, parseInt(portionCount, 10) || 1);
+    var p = Math.round(Number(portions));
+    var d = Math.round(Number(portionCount));
+    if (isNaN(p) || p < 0) p = 0;
+    if (isNaN(d) || d < 1) d = 1;
     if (d === 1) return String(p);
     return p + '/' + d;
   }

@@ -275,7 +275,7 @@
           claimMap: state.claimMap,
           currentUser: state.userName,
           onSlotClick: onSlotClick,
-          onSlotLongPress: onSlotLongPress,
+          onSlotShare: onSlotShare,
           onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
@@ -398,7 +398,7 @@
     });
   }
 
-  function onSlotLongPress(rowIndex, unitIndex, triggerEl) {
+  function onSlotShare(rowIndex, unitIndex, triggerEl) {
     var st = SplitifyClaimsState.getSlotState(state.claimMap, state.userName, rowIndex, unitIndex);
     if (st === 'claimed-by-other') {
       onClaimedByOtherClick(rowIndex, unitIndex, triggerEl || null);
@@ -446,7 +446,7 @@
           claimMap: state.claimMap,
           currentUser: state.userName,
           onSlotClick: onSlotClick,
-          onSlotLongPress: onSlotLongPress,
+          onSlotShare: onSlotShare,
           onClaimedByOtherClick: onClaimedByOtherClick
         }));
       }
@@ -538,12 +538,16 @@
       var it = items[i];
       var claimed = 0;
       var itemClaimBucket = {};
+      var unclaimedBucket = {};
       var unitPrice = effectiveUnitForItem(it);
       var q = parseInt(it.quantity, 10) || 0;
       for (var u = 0; u < q; u++) {
         var info = SplitifyClaimsState.getSlotInfo(claimMap, it.rowIndex, u);
         var idxs = Object.keys(info.byIndex || {});
-        if (!idxs.length) continue;
+        if (!idxs.length) {
+          unclaimedBucket[1] = (unclaimedBucket[1] || 0) + 1;
+          continue;
+        }
         var portionCount = Math.max(1, info.portionCount || 1);
         var byUserOnSlot = {};
         for (var pi = 0; pi < idxs.length; pi++) {
@@ -551,6 +555,10 @@
           byUserOnSlot[uname] = (byUserOnSlot[uname] || 0) + 1;
         }
         claimed += idxs.length / portionCount;
+        var freePortions = portionCount - idxs.length;
+        if (freePortions > 0) {
+          unclaimedBucket[portionCount] = (unclaimedBucket[portionCount] || 0) + freePortions;
+        }
         var slotUsers = Object.keys(byUserOnSlot);
         for (var su = 0; su < slotUsers.length; su++) {
           var nm = slotUsers[su];
@@ -572,12 +580,24 @@
           portionCount: entry.portionCount
         });
       }
+      var unclaimedParts = [];
+      var unclaimedKeys = Object.keys(unclaimedBucket).sort(function (a, b) {
+        return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
+      });
+      for (var uk = 0; uk < unclaimedKeys.length; uk++) {
+        var denom = parseInt(unclaimedKeys[uk], 10) || 1;
+        unclaimedParts.push({
+          portions: unclaimedBucket[unclaimedKeys[uk]],
+          portionCount: denom
+        });
+      }
       byItem.push({
         description: normalizeDisplayDescription(it.description),
         category: it.category,
         quantity: it.quantity,
         claimed: claimed,
         unclaimed: Math.max(0, q - claimed),
+        unclaimedParts: unclaimedParts,
         unitPrice: unitPrice,
         totalPrice: it.total_price || 0,
         claimsByUser: claimsByUser

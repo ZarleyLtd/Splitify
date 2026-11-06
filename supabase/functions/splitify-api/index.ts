@@ -396,18 +396,27 @@ async function getBillSummaryById(
       string,
       { portions: number; portionCount: number }
     > = {};
+    const unclaimedBucket: Record<number, number> = {};
     const q = parseInt(String(it.quantity), 10) || 0;
     const unitPrice = parseFloat(String(it.unit_price)) || 0;
     for (let u = 0; u < q; u++) {
       const key = `${it.rowIndex}_${u}`;
       const slotClaims = claimsBySlot[key] || [];
-      if (!slotClaims.length) continue;
+      if (!slotClaims.length) {
+        unclaimedBucket[1] = (unclaimedBucket[1] || 0) + 1;
+        continue;
+      }
       const portionCount = Math.max(1, slotClaims[0].portionCount || 1);
       const byUserOnSlot: Record<string, number> = {};
       for (const sc of slotClaims) {
         byUserOnSlot[sc.userName] = (byUserOnSlot[sc.userName] || 0) + 1;
       }
       claimed += slotClaims.length / portionCount;
+      const freePortions = portionCount - slotClaims.length;
+      if (freePortions > 0) {
+        unclaimedBucket[portionCount] =
+          (unclaimedBucket[portionCount] || 0) + freePortions;
+      }
       for (const nm of Object.keys(byUserOnSlot)) {
         const parts = byUserOnSlot[nm];
         accumulateClaimFraction(itemClaimBucket, nm, parts, portionCount);
@@ -429,12 +438,24 @@ async function getBillSummaryById(
         portionCount: entry.portionCount,
       });
     }
+    const unclaimedParts: Array<{ portions: number; portionCount: number }> =
+      [];
+    const unclaimedKeys = Object.keys(unclaimedBucket)
+      .map((k) => parseInt(k, 10) || 1)
+      .sort((a, b) => a - b);
+    for (const denom of unclaimedKeys) {
+      unclaimedParts.push({
+        portions: unclaimedBucket[denom],
+        portionCount: denom,
+      });
+    }
     byItem.push({
       description: it.description,
       category: it.category,
       quantity: it.quantity,
       claimed,
       unclaimed: Math.max(0, q - claimed),
+      unclaimedParts,
       unitPrice,
       totalPrice: parseFloat(String(it.total_price)) || 0,
       claimsByUser,

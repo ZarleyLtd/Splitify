@@ -15,19 +15,22 @@
   }
 
   function claimEntryPortions(cu) {
-    if (cu.portions != null && cu.portionCount != null) {
-      return {
-        portions: parseInt(cu.portions, 10) || 0,
-        portionCount: Math.max(1, parseInt(cu.portionCount, 10) || 1)
-      };
+    var rawP = cu && cu.portions;
+    var rawD = cu && cu.portionCount;
+    if (rawP != null && rawP !== '' && rawD != null && rawD !== '') {
+      var portions = parseInt(rawP, 10);
+      var portionCount = parseInt(rawD, 10);
+      if (!isNaN(portions) && !isNaN(portionCount) && portionCount >= 1) {
+        return { portions: portions, portionCount: portionCount };
+      }
     }
-    var count = parseFloat(cu.count);
+    var count = parseFloat(cu && cu.count);
     if (isNaN(count)) count = 0;
     if (Math.abs(count - Math.round(count)) < 1e-9) {
       return { portions: Math.round(count), portionCount: 1 };
     }
-    // Best-effort: treat non-integer as already fractional value with denom 1 for money only.
-    return { portions: count, portionCount: 1 };
+    // Missing exact share metadata: do not invent a reduced fraction or decimal label.
+    return { portions: 0, portionCount: 1, unknown: true, count: count };
   }
 
   function quantitySuffix(portions, portionCount) {
@@ -48,16 +51,36 @@
     return String(portions);
   }
 
-  function formatUnclaimedLabel(unclaimed) {
-    var n = parseFloat(unclaimed);
-    if (isNaN(n) || n <= 0) return '';
-    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
-    // Show up to 3 decimal places trimmed, but prefer simple fractions for common denominators.
-    for (var d = 2; d <= 10; d++) {
-      var num = Math.round(n * d);
-      if (Math.abs(n - num / d) < 1e-6) return num + '/' + d;
+  function exactShareLabel(portions, portionCount) {
+    var p = Math.round(Number(portions));
+    var d = Math.round(Number(portionCount));
+    if (isNaN(p) || p < 0) p = 0;
+    if (isNaN(d) || d < 1) d = 1;
+    if (d === 1) return String(p);
+    return p + '/' + d;
+  }
+
+  function unclaimedPartsFromItem(it) {
+    var parts = Array.isArray(it.unclaimedParts) ? it.unclaimedParts : null;
+    if (parts && parts.length) return parts;
+    if (it.unclaimedPortions != null && it.unclaimedPortionCount != null) {
+      return [{
+        portions: parseInt(it.unclaimedPortions, 10) || 0,
+        portionCount: Math.max(1, parseInt(it.unclaimedPortionCount, 10) || 1)
+      }];
     }
-    return String(Math.round(n * 1000) / 1000);
+    return [];
+  }
+
+  function formatUnclaimedParts(parts) {
+    if (!parts || !parts.length) return '';
+    var labels = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (!p || !(p.portions > 0)) continue;
+      labels.push(exactShareLabel(p.portions, p.portionCount));
+    }
+    return labels.join(' + ');
   }
 
   function render(container, summary, options) {
@@ -77,7 +100,7 @@
         // Aggregate per-user products by description+unit+portionCount so mixed
         // full claims and shares stay on separate sublines when denominators differ.
         var userProductMap = {};   // { userName: { groupKey: { description, portions, portionCount, totalValue } } }
-        var unclaimedMap = {};     // { groupKey: { description, count, totalValue } }
+        var unclaimedMap = {};     // { groupKey: { description, portions, portionCount, totalValue } }
         var unclaimedSubtotal = 0;
         for (var k = 0; k < byItem.length; k++) {
           var it = byItem[k];
@@ -88,6 +111,22 @@
           for (var ci = 0; ci < claimedBy.length; ci++) {
             var cu = claimedBy[ci];
             var frac = claimEntryPortions(cu);
+            if (frac.unknown) {
+              // Fall back to money only; skip broken quantity label rather than show a decimal.
+              var fallbackKey = groupKeyBase + '|unknown';
+              if (!userProductMap[cu.userName]) userProductMap[cu.userName] = {};
+              if (!userProductMap[cu.userName][fallbackKey]) {
+                userProductMap[cu.userName][fallbackKey] = {
+                  description: desc,
+                  portions: 0,
+                  portionCount: 1,
+                  totalValue: 0,
+                  hideQty: true
+                };
+              }
+              userProductMap[cu.userName][fallbackKey].totalValue += (frac.count || 0) * unit;
+              continue;
+            }
             var groupKey = groupKeyBase + '|p' + frac.portionCount;
             if (!userProductMap[cu.userName]) userProductMap[cu.userName] = {};
             if (!userProductMap[cu.userName][groupKey]) {
@@ -102,12 +141,38 @@
             userProductMap[cu.userName][groupKey].totalValue +=
               (frac.portions / frac.portionCount) * unit;
           }
-          if ((it.unclaimed || 0) > 0) {
-            var uLineVal = it.unclaimed * unit;
-            unclaimedSubtotal += uLineVal;
-            if (!unclaimedMap[groupKeyBase]) unclaimedMap[groupKeyBase] = { description: desc, count: 0, totalValue: 0 };
-            unclaimedMap[groupKeyBase].count += it.unclaimed;
-            unclaimedMap[groupKeyBase].totalValue += uLineVal;
+          var uParts = unclaimedPartsFromItem(it);
+          if (!uParts.length && (it.unclaimed || 0) > 0) {
+            // Legacy float-only payload: value only, no invented fraction.
+            var legacyVal = it.unclaimed * unit;
+            unclaimedSubtotal += legacyVal;
+            if (!unclaimedMap[groupKeyBase + '|legacy']) {
+              unclaimedMap[groupKeyBase + '|legacy'] = {
+                description: desc,
+                portions: 0,
+                portionCount: 1,
+                totalValue: 0,
+                hideQty: true
+              };
+            }
+            unclaimedMap[groupKeyBase + '|legacy'].totalValue += legacyVal;
+          }
+          for (var upi0 = 0; upi0 < uParts.length; upi0++) {
+            var upart = uParts[upi0];
+            if (!upart || !(upart.portions > 0)) continue;
+            var uVal = (upart.portions / upart.portionCount) * unit;
+            unclaimedSubtotal += uVal;
+            var uKey = groupKeyBase + '|p' + upart.portionCount;
+            if (!unclaimedMap[uKey]) {
+              unclaimedMap[uKey] = {
+                description: desc,
+                portions: 0,
+                portionCount: upart.portionCount,
+                totalValue: 0
+              };
+            }
+            unclaimedMap[uKey].portions += upart.portions;
+            unclaimedMap[uKey].totalValue += uVal;
           }
         }
         html += '<ul class="summary-list">';
@@ -123,8 +188,9 @@
             '</div>';
           for (var pi = 0; pi < prodDescs.length; pi++) {
             var p = prodMap[prodDescs[pi]];
+            var qtyText = p.hideQty ? '' : quantitySuffix(p.portions, p.portionCount);
             html += '<div class="summary-user-product">' +
-              '<span>' + escapeHtml(p.description) + quantitySuffix(p.portions, p.portionCount) + '</span>' +
+              '<span>' + escapeHtml(p.description) + qtyText + '</span>' +
               '<span>€' + SplitifyFormatters.formatMoney(p.totalValue) + '</span>' +
               '</div>';
           }
@@ -146,7 +212,7 @@
           unclaimedDescs.sort();
           for (var upi = 0; upi < unclaimedDescs.length; upi++) {
             var up = unclaimedMap[unclaimedDescs[upi]];
-            var uLabel = formatUnclaimedLabel(up.count);
+            var uLabel = up.hideQty ? '' : exactShareLabel(up.portions, up.portionCount);
             unclaimedCardHtml += '<div class="summary-user-product">' +
               '<span>' + escapeHtml(up.description) + (uLabel && uLabel !== '1' ? ' x' + uLabel : '') + '</span>' +
               '<span>€' + SplitifyFormatters.formatMoney(up.totalValue) + '</span>' +
@@ -169,12 +235,17 @@
           var claimsByUser = Array.isArray(it2.claimsByUser) ? it2.claimsByUser : [];
           for (var c = 0; c < claimsByUser.length; c++) {
             var entry = claimEntryPortions(claimsByUser[c]);
-            html += '<div class="summary-subline">' + escapeHtml(claimsByUser[c].userName) +
-              ' (' + claimCountLabel(entry.portions, entry.portionCount) + ')</div>';
+            var countText = entry.unknown
+              ? ''
+              : (' (' + claimCountLabel(entry.portions, entry.portionCount) + ')');
+            html += '<div class="summary-subline">' + escapeHtml(claimsByUser[c].userName) + countText + '</div>';
           }
-          if ((it2.unclaimed || 0) > 0) {
+          var unclaimedLabel = formatUnclaimedParts(unclaimedPartsFromItem(it2));
+          if (unclaimedLabel) {
             html += '<div class="summary-subline summary-subline--unclaimed">Unclaimed (' +
-              formatUnclaimedLabel(it2.unclaimed) + ')</div>';
+              unclaimedLabel + ')</div>';
+          } else if ((it2.unclaimed || 0) > 0) {
+            html += '<div class="summary-subline summary-subline--unclaimed">Unclaimed</div>';
           }
           html += '</div><strong>€' + SplitifyFormatters.formatMoney(it2.totalPrice || 0) + '</strong></li>';
         }
