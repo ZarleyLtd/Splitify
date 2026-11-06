@@ -48,6 +48,7 @@ function doPost(e) {
     else if (action === 'updateBillTotalPaid') out.data = updateBillTotalPaid(body);
     else if (action === 'submitClaimsByBillId') out.data = submitClaimsByBillId(body);
     else if (action === 'deleteBillById') out.data = deleteBillById(body);
+    else if (action === 'setActiveBillModel') out.data = setActiveBillModel(body);
     else throw new Error('Unknown or missing action');
   } catch (err) {
     out.error = err.message || String(err);
@@ -434,7 +435,45 @@ function getProductIcons() {
   return out;
 }
 
+function getAllowedBillModelIds_() {
+  var ids = [];
+  for (var k in GEMINI_BILL_ALLOWED_MODELS) {
+    if (Object.prototype.hasOwnProperty.call(GEMINI_BILL_ALLOWED_MODELS, k)) ids.push(k);
+  }
+  ids.sort();
+  return ids;
+}
+
 function getActiveBillModel() {
+  return { modelId: getActiveBillModelFromConfig_(), allowedModelIds: getAllowedBillModelIds_() };
+}
+
+function setConfigEntryValue_(entryKey, entryValue) {
+  var ss = getSpreadsheet();
+  var sheet = ss.getSheetByName(SHEETS.CONFIG);
+  if (!sheet) throw new Error('Config sheet not found');
+  var data = sheet.getDataRange().getValues();
+  if (!data.length) throw new Error('Config sheet is empty');
+  var header = data[0];
+  var cKey = getColIndex(header, 'Key');
+  var cValue = getColIndex(header, 'Value');
+  if (cKey < 0 || cValue < 0) throw new Error('Config sheet missing Key/Value columns');
+  var keyTrim = String(entryKey || '').trim();
+  var valStr = String(entryValue || '').trim();
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][cKey] || '').trim();
+    if (k === keyTrim) {
+      sheet.getRange(i + 1, cValue + 1).setValue(valStr);
+      return;
+    }
+  }
+  sheet.appendRow([keyTrim, valStr]);
+}
+
+function setActiveBillModel(body) {
+  var modelId = String(body.modelId || '').trim();
+  if (!modelId || !GEMINI_BILL_ALLOWED_MODELS[modelId]) throw new Error('Invalid bill model');
+  setConfigEntryValue_('aiModelActive', modelId);
   return { modelId: getActiveBillModelFromConfig_() };
 }
 

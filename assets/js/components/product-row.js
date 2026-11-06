@@ -122,6 +122,51 @@
     return IMAGE_BASE + defaultAssetFile(category);
   }
 
+  function badgeHtml(st, claimMap, currentUser, rowIndex, unitIndex) {
+    if (st === 'claimed-by-me') {
+      return '<span class="claims-slot-btn__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>';
+    }
+    if (st === 'shared-by-me' || st === 'shared-by-other') {
+      var info = SplitifyClaimsState.getSlotInfo(claimMap, rowIndex, unitIndex);
+      var filled;
+      if (st === 'shared-by-me') {
+        filled = SplitifyClaimsState.getMyPortions(claimMap, currentUser, rowIndex, unitIndex);
+      } else {
+        filled = Object.keys(info.byIndex || {}).map(function (k) { return parseInt(k, 10); });
+      }
+      if (global.SplitifyShareClaimDialog && typeof global.SplitifyShareClaimDialog.buildMiniPieBadge === 'function') {
+        return global.SplitifyShareClaimDialog.buildMiniPieBadge(info.portionCount, filled);
+      }
+      return '<span class="claims-slot-btn__pie claims-slot-btn__pie--fallback" aria-hidden="true"></span>';
+    }
+    return '';
+  }
+
+  function ariaForState(st, otherNames) {
+    if (st === 'claimed-by-me') return 'Claimed by me';
+    if (st === 'shared-by-me') return 'Shared claim — tap to edit portions';
+    if (st === 'claimed-by-other') return 'Claimed by ' + (otherNames[0] || 'another user');
+    if (st === 'shared-by-other') {
+      return otherNames.length
+        ? ('Partially shared with ' + otherNames.join(', ') + ' — tap to claim a portion')
+        : 'Partially shared — tap to claim a portion';
+    }
+    return 'Available to claim';
+  }
+
+  function shareControlHtml() {
+    return '<button type="button" class="claims-slot-share" aria-label="Share portions" title="Share portions">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>' +
+      '<path d="M12 3v9l6.5 3.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' +
+      '</svg>' +
+      '</button>';
+  }
+
+  function canShare(st) {
+    return st === 'available' || st === 'claimed-by-me' || st === 'shared-by-me' || st === 'shared-by-other';
+  }
+
   function render(opts) {
     opts = opts || {};
     var row = document.createElement('div');
@@ -138,28 +183,28 @@
     var slots = opts.slots || [];
     for (var i = 0; i < slots.length; i++) {
       var s = slots[i];
+      var wrap = document.createElement('div');
+      wrap.className = 'claims-slot';
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'claims-slot-btn';
       var st = SplitifyClaimsState.getSlotState(opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
       btn.className += ' ' + st;
-      var otherName = '';
-      if (st === 'claimed-by-other' && opts.claimMap) {
-        otherName = String(opts.claimMap[SplitifyClaimsState.slotKey(s.rowIndex, s.unitIndex)] || '').trim();
-      }
-      btn.setAttribute(
-        'aria-label',
-        st === 'claimed-by-me'
-          ? 'Claimed by me'
-          : (st === 'claimed-by-other'
-            ? ('Claimed by ' + (otherName || 'another user'))
-            : 'Available to claim')
-      );
-      btn.title = st === 'claimed-by-me' ? 'Claimed by me' : (st === 'claimed-by-other' ? ('Claimed by ' + (otherName || 'another user')) : 'Available');
-      btn.innerHTML = '<img class="claims-slot-btn__img" src="' + resolveImageSrc(opts.category, opts.description, opts.productIcons) + '" alt="">' +
-        (st === 'claimed-by-me' ? '<span class="claims-slot-btn__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>' : '');
+      wrap.className += ' ' + st;
+      var otherNames = SplitifyClaimsState.getOtherClaimants(opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
+      btn.setAttribute('aria-label', ariaForState(st, otherNames));
+      btn.title = ariaForState(st, otherNames);
+      btn.innerHTML = '<img class="claims-slot-btn__img" src="' + resolveImageSrc(opts.category, opts.description, opts.productIcons) + '" alt="" draggable="false">' +
+        badgeHtml(st, opts.claimMap, opts.currentUser, s.rowIndex, s.unitIndex);
       if (opts.readOnly) btn.disabled = true;
-      (function (rowIndex, unitIndex, slotState, buttonEl) {
+      wrap.appendChild(btn);
+
+      if (!opts.readOnly && canShare(st)) {
+        wrap.insertAdjacentHTML('beforeend', shareControlHtml());
+      }
+
+      (function (rowIndex, unitIndex, slotState, buttonEl, wrapEl) {
+        if (opts.readOnly) return;
         buttonEl.addEventListener('click', function () {
           if (slotState === 'claimed-by-other') {
             if (opts.onClaimedByOtherClick) opts.onClaimedByOtherClick(rowIndex, unitIndex, buttonEl);
@@ -167,8 +212,19 @@
           }
           if (opts.onSlotClick) opts.onSlotClick(rowIndex, unitIndex);
         });
-      })(s.rowIndex, s.unitIndex, st, btn);
-      chips.appendChild(btn);
+        buttonEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+        var shareBtn = wrapEl.querySelector('.claims-slot-share');
+        if (shareBtn) {
+          shareBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (opts.onSlotShare) opts.onSlotShare(rowIndex, unitIndex, shareBtn);
+          });
+          shareBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+        }
+      })(s.rowIndex, s.unitIndex, st, btn, wrap);
+      chips.appendChild(wrap);
     }
     stripWrap.appendChild(chips);
     row.appendChild(stripWrap);

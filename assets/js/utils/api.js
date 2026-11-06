@@ -149,6 +149,9 @@
     getActiveBillModel: function (options) {
       return requestGet("getActiveBillModel", {}, options);
     },
+    setActiveBillModel: function (payload, options) {
+      return requestPost("setActiveBillModel", payload, options);
+    },
     getQuips: function (options) {
       return requestGet("getQuips", {}, options);
     },
