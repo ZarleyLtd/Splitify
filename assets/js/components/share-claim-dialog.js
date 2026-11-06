@@ -163,9 +163,15 @@
         '<div class="share-claim-dialog__body">' +
         lockNote +
         '<div class="share-claim-dialog__count">' +
-        '<button type="button" class="btn share-claim-dialog__count-btn" data-action="dec" ' + (locked || portionCount <= 2 ? 'disabled' : '') + ' aria-label="Fewer portions">−</button>' +
-        '<span class="share-claim-dialog__count-label">' + portionCount + ' portions</span>' +
-        '<button type="button" class="btn share-claim-dialog__count-btn" data-action="inc" ' + (locked || portionCount >= 10 ? 'disabled' : '') + ' aria-label="More portions">+</button>' +
+        (locked
+          ? '<span class="share-claim-dialog__count-label">' + portionCount + ' portions</span>'
+          : ('<button type="button" class="btn share-claim-dialog__count-btn" data-action="dec"' +
+            (portionCount <= 2 ? ' disabled' : '') +
+            ' aria-label="Fewer portions">−</button>' +
+            '<span class="share-claim-dialog__count-label">' + portionCount + ' portions</span>' +
+            '<button type="button" class="btn share-claim-dialog__count-btn" data-action="inc"' +
+            (portionCount >= 10 ? ' disabled' : '') +
+            ' aria-label="More portions">+</button>')) +
         '</div>' +
         '<div class="share-claim-dialog__pie-wrap">' + buildPieSvg({
           portionCount: portionCount,

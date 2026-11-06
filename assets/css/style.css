@@ -1209,7 +1209,7 @@ h1 { color: var(--accent); }
 }
 
 /* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
-@import url('brief-message.css?v=20261106c');
+@import url('brief-message.css?v=20261106d');
 
 .app--bill .brief-message {
   --brief-msg-bg: rgba(24, 20, 17, 0.93);
