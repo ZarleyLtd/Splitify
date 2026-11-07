@@ -3,5 +3,5 @@
  * Keep the same value on all local ?v= query params in *.html and CSS @imports.
  */
 (function (global) {
-  global.SPLITIFY_ASSET_V = '20261106d';
+  global.SPLITIFY_ASSET_V = '20261107a';
 })(typeof window !== 'undefined' ? window : this);

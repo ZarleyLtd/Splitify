@@ -747,7 +747,56 @@ h1 { color: var(--accent); }
   background: rgba(255, 255, 255, 0.34);
   min-width: 0;
 }
-.product-row__title { font-weight: 700; margin-bottom: 8px; }
+.product-row__header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+.product-row__title {
+  font-weight: 700;
+  line-height: 1.2;
+  flex: 1;
+  min-width: 0;
+}
+.product-row__portion-toggle {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  font-size: inherit;
+  line-height: 1;
+  width: 1.2em;
+  height: 1.2em;
+  min-width: 1.2em;
+  min-height: 1.2em;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(29, 50, 69, 0.78);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.product-row__portion-toggle svg {
+  width: 68%;
+  height: 68%;
+  display: block;
+  pointer-events: none;
+}
+.product-row__portion-toggle:active {
+  transform: scale(0.94);
+}
+.product-row__portion-toggle--on {
+  background: #1d3245;
+  box-shadow: 0 0 0 2px rgba(29, 50, 69, 0.28), 0 1px 2px rgba(0, 0, 0, 0.2);
+}
 /* Horizontal scroll for slot buttons (theConfessional-style strip) */
 .product-row__strip-wrap {
   overflow-x: auto;
@@ -814,45 +863,6 @@ h1 { color: var(--accent); }
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-}
-.claims-slot-share {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  z-index: 2;
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  min-height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: rgba(29, 50, 69, 0.88);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: manipulation;
-}
-.claims-slot-share svg {
-  width: 12px;
-  height: 12px;
-  display: block;
-  pointer-events: none;
-}
-.claims-slot-share:active {
-  transform: scale(0.94);
-}
-.claims-slot.available .claims-slot-share {
-  background: rgba(29, 50, 69, 0.72);
-}
-.claims-slot.shared-by-other .claims-slot-share {
-  background: rgba(107, 114, 128, 0.95);
 }
 .claims-slot-btn.available { opacity: 0.55; }
 .claims-slot-btn.claimed-by-me {
@@ -1209,7 +1219,7 @@ h1 { color: var(--accent); }
 }
 
 /* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
-@import url('brief-message.css?v=20261106d');
+@import url('brief-message.css?v=20261107a');
 
 .app--bill .brief-message {
   --brief-msg-bg: rgba(24, 20, 17, 0.93);

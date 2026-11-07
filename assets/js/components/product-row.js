@@ -154,27 +154,56 @@
     return 'Available to claim';
   }
 
-  function shareControlHtml() {
-    return '<button type="button" class="claims-slot-share" aria-label="Share portions" title="Share portions">' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  function portionToggleSvg() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' +
       '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>' +
       '<path d="M12 3v9l6.5 3.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' +
-      '</svg>' +
-      '</button>';
+      '</svg>';
   }
 
   function canShare(st) {
     return st === 'available' || st === 'claimed-by-me' || st === 'shared-by-me' || st === 'shared-by-other';
   }
 
+  function setPortionModeUi(row, toggle, on) {
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    toggle.classList.toggle('product-row__portion-toggle--on', on);
+    row.classList.toggle('product-row--portion-claim', on);
+    toggle.title = on ? 'Portion claim mode on' : 'Portion claim mode';
+  }
+
   function render(opts) {
     opts = opts || {};
     var row = document.createElement('div');
     row.className = 'product-row';
+    var portionMode = !!opts.portionClaimMode;
+
+    var header = document.createElement('div');
+    header.className = 'product-row__header';
+
+    if (!opts.readOnly) {
+      var toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'product-row__portion-toggle';
+      toggle.setAttribute('aria-label', 'Portion claim mode');
+      toggle.innerHTML = portionToggleSvg();
+      setPortionModeUi(row, toggle, portionMode);
+      toggle.addEventListener('click', function () {
+        portionMode = !portionMode;
+        setPortionModeUi(row, toggle, portionMode);
+        if (opts.onPortionClaimModeChange) opts.onPortionClaimModeChange(portionMode);
+      });
+      toggle.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      header.appendChild(toggle);
+    } else if (portionMode) {
+      row.classList.add('product-row--portion-claim');
+    }
+
     var title = document.createElement('div');
     title.className = 'product-row__title';
     title.textContent = opts.description + ' (' + opts.slots.length + ')';
-    row.appendChild(title);
+    header.appendChild(title);
+    row.appendChild(header);
 
     var stripWrap = document.createElement('div');
     stripWrap.className = 'product-row__strip-wrap';
@@ -199,31 +228,21 @@
       if (opts.readOnly) btn.disabled = true;
       wrap.appendChild(btn);
 
-      if (!opts.readOnly && canShare(st)) {
-        wrap.insertAdjacentHTML('beforeend', shareControlHtml());
-      }
-
-      (function (rowIndex, unitIndex, slotState, buttonEl, wrapEl) {
+      (function (rowIndex, unitIndex, slotState, buttonEl) {
         if (opts.readOnly) return;
         buttonEl.addEventListener('click', function () {
           if (slotState === 'claimed-by-other') {
             if (opts.onClaimedByOtherClick) opts.onClaimedByOtherClick(rowIndex, unitIndex, buttonEl);
             return;
           }
+          if (portionMode && canShare(slotState) && opts.onSlotShare) {
+            opts.onSlotShare(rowIndex, unitIndex, buttonEl);
+            return;
+          }
           if (opts.onSlotClick) opts.onSlotClick(rowIndex, unitIndex);
         });
         buttonEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-
-        var shareBtn = wrapEl.querySelector('.claims-slot-share');
-        if (shareBtn) {
-          shareBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (opts.onSlotShare) opts.onSlotShare(rowIndex, unitIndex, shareBtn);
-          });
-          shareBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-        }
-      })(s.rowIndex, s.unitIndex, st, btn, wrap);
+      })(s.rowIndex, s.unitIndex, st, btn);
       chips.appendChild(wrap);
     }
     stripWrap.appendChild(chips);

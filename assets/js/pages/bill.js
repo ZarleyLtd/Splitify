@@ -15,7 +15,9 @@
     claimsLoaded: false,
     mySelectionOriginal: [],
     /** Per consolidated group key `g0`…: slot order (matches theConfessional: sort by state once, then stable). */
-    consolidatedRowOrder: {}
+    consolidatedRowOrder: {},
+    /** Per consolidated group key `g0`…: portion-claim mode (header pie toggle). */
+    portionClaimModeByGroup: {}
   };
 
   var SLOT_STATE_ORDER = {
@@ -267,21 +269,31 @@
       var list = document.getElementById('bill-items');
       list.innerHTML = '';
       for (var i = 0; i < groups.length; i++) {
-        list.appendChild(SplitifyProductRow.render({
-          category: groups[i].category,
-          description: groups[i].description,
-          slots: getOrderedSlotsForGroup(groups[i], i),
-          productIcons: state.productIcons,
-          claimMap: state.claimMap,
-          currentUser: state.userName,
-          onSlotClick: onSlotClick,
-          onSlotShare: onSlotShare,
-          onClaimedByOtherClick: onClaimedByOtherClick
-        }));
+        list.appendChild(renderProductClaimRow(groups[i], i));
       }
       renderClaimSelectionSummary();
       document.getElementById('submit-claims-btn').addEventListener('click', submitClaims);
     }
+  }
+
+  function renderProductClaimRow(group, groupIndex) {
+    var rowKey = 'g' + groupIndex;
+    return SplitifyProductRow.render({
+      category: group.category,
+      description: group.description,
+      slots: getOrderedSlotsForGroup(group, groupIndex),
+      productIcons: state.productIcons,
+      claimMap: state.claimMap,
+      currentUser: state.userName,
+      portionClaimMode: !!state.portionClaimModeByGroup[rowKey],
+      onSlotClick: onSlotClick,
+      onSlotShare: onSlotShare,
+      onClaimedByOtherClick: onClaimedByOtherClick,
+      onPortionClaimModeChange: function (on) {
+        if (on) state.portionClaimModeByGroup[rowKey] = true;
+        else delete state.portionClaimModeByGroup[rowKey];
+      }
+    });
   }
 
   function updateMakeClaimBtn() {
@@ -438,17 +450,7 @@
     if (list) {
       list.innerHTML = '';
       for (var i = 0; i < groups.length; i++) {
-        list.appendChild(SplitifyProductRow.render({
-          category: groups[i].category,
-          description: groups[i].description,
-          slots: getOrderedSlotsForGroup(groups[i], i),
-          productIcons: state.productIcons,
-          claimMap: state.claimMap,
-          currentUser: state.userName,
-          onSlotClick: onSlotClick,
-          onSlotShare: onSlotShare,
-          onClaimedByOtherClick: onClaimedByOtherClick
-        }));
+        list.appendChild(renderProductClaimRow(groups[i], i));
       }
     }
     renderClaimSelectionSummary();
