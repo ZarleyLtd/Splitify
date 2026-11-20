@@ -190,6 +190,16 @@
       bind();
     }
 
+    // BriefMessage appends to <body>, which sits beneath a modal dialog's top layer,
+    // so move the new message inside the dialog to keep it visible.
+    function showDialogBriefMessage(text, anchorEl) {
+      if (!global.BriefMessage) return;
+      global.BriefMessage.show(text, anchorEl, { durationMs: 1200 });
+      var msgs = document.body.querySelectorAll(':scope > .brief-message');
+      var msg = msgs.length ? msgs[msgs.length - 1] : null;
+      if (msg && dialog.open) dialog.appendChild(msg);
+    }
+
     function closeDialog() {
       if (typeof dialog.close === 'function' && dialog.open) dialog.close();
       if (dialog.parentNode) dialog.parentNode.removeChild(dialog);
@@ -250,7 +260,10 @@
           if (!g) return;
           var idx = parseInt(g.getAttribute('data-portion-index'), 10);
           if (isNaN(idx)) return;
-          if (othersByIndex[idx]) return;
+          if (othersByIndex[idx]) {
+            showDialogBriefMessage('Claimed by ' + othersByIndex[idx], g);
+            return;
+          }
           if (selected[idx]) delete selected[idx];
           else selected[idx] = true;
           renderBody();

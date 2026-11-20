@@ -157,7 +157,7 @@
   function portionToggleSvg() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true">' +
       '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>' +
-      '<path d="M12 3v9l6.5 3.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' +
+      '<path fill="currentColor" d="M12 12V3A9 9 0 0 1 19.794 7.5L12 12Z"></path>' +
       '</svg>';
   }
 

@@ -1,0 +1,52 @@
+/**
+ * Working indicator — CursorSites shared pattern.
+ * Canonical source: cursor-sites-shared/ui/working-indicator.css
+ * Spec: cursor-sites-shared/ui/WORKING_INDICATOR.md
+ */
+
+.working-indicator {
+  --working-backdrop: rgba(0, 0, 0, 0.28);
+  --working-panel-bg: rgba(24, 20, 17, 0.92);
+  --working-panel-color: #efe6d4;
+  --working-radius: 999px;
+  --working-z: 1200;
+
+  position: fixed;
+  inset: 0;
+  z-index: var(--working-z);
+  background: var(--working-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.working-indicator.working-indicator--hidden,
+.working-indicator.hidden {
+  display: none;
+}
+
+.working-indicator__panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--working-panel-bg);
+  color: var(--working-panel-color);
+  border-radius: var(--working-radius);
+  padding: 10px 16px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.working-indicator__spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(239, 230, 212, 0.3);
+  border-top-color: var(--working-panel-color);
+  animation: working-indicator-spin 0.8s linear infinite;
+}
+
+@keyframes working-indicator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

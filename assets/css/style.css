@@ -1023,8 +1023,8 @@ h1 { color: var(--accent); }
   cursor: pointer;
 }
 .share-pie__portion--other {
-  cursor: not-allowed;
-  pointer-events: none;
+  /* Clickable so tapping shows "Claimed by <user>"; it never toggles selection. */
+  cursor: pointer;
 }
 .share-pie__portion--other path {
   stroke: #1f2937;
@@ -1219,7 +1219,10 @@ h1 { color: var(--accent); }
 }
 
 /* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
-@import url('brief-message.css?v=20261120a');
+@import url('brief-message.css?v=20261120b');
+/* Working indicator: shared pattern — see cursor-sites-shared/ui/WORKING_INDICATOR.md */
+@import url('working-indicator.css?v=20261120b');
+
 
 .app--bill .brief-message {
   --brief-msg-bg: rgba(24, 20, 17, 0.93);
@@ -1231,38 +1234,6 @@ h1 { color: var(--accent); }
   --brief-msg-font-weight: 600;
   --brief-msg-max-width: min(92vw, 18rem);
   --brief-msg-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-
-.working-indicator {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  background: rgba(0, 0, 0, 0.28);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.working-indicator.hidden { display: none; }
-.working-indicator__panel {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(24, 20, 17, 0.92);
-  color: #efe6d4;
-  border-radius: 999px;
-  padding: 10px 16px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
-}
-.working-indicator__spinner {
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  border: 2px solid rgba(239, 230, 212, 0.3);
-  border-top-color: #efe6d4;
-  animation: splitify-spin 0.8s linear infinite;
-}
-@keyframes splitify-spin {
-  to { transform: rotate(360deg); }
 }
 
 @media (min-width: 700px) {
