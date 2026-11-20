@@ -67,7 +67,9 @@ The brief message and working indicator are shared CursorSites patterns. Their s
 
 - To show a message, use `BriefMessage.show(text, anchorEl, { durationMs: 1200, disableElement })`.
 - Never duplicate a brief-message implementation inline in a page script.
-- Brief-message styles are in `assets/css/brief-message.css`, plus Splitify pill overrides in `style.css` (`.app--bill .brief-message`).
+- Brief-message styles are in `assets/css/brief-message.css`, plus Splitify pill overrides in `style.css` (`:root:has(.app--bill) .brief-message`). The message is added to `<body>`, not inside `.app--bill`, so don't change this back to `.app--bill .brief-message`.
+- Keep the `@import` lines at the very top of `style.css`. Browsers ignore an `@import` placed after any other rule.
+- The share dialog is a modal, which sits above `<body>`, so `share-claim-dialog.js` moves its brief message inside the dialog to keep it visible.
 
 ### Keep share/portion claims in step with theConfessional
 
