@@ -1,3 +1,9 @@
+/* @import must come before every other rule or browsers ignore it. */
+/* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
+@import url('brief-message.css?v=20261120c');
+/* Working indicator: shared pattern — see cursor-sites-shared/ui/WORKING_INDICATOR.md */
+@import url('working-indicator.css?v=20261120c');
+
 :root {
   --bg: #1f1a17;
   --paper: #e8dcc6;
@@ -1218,13 +1224,9 @@ h1 { color: var(--accent); }
   display: block;
 }
 
-/* Brief message: shared pattern — see cursor-sites-shared/ui/BRIEF_MESSAGE.md */
-@import url('brief-message.css?v=20261120b');
-/* Working indicator: shared pattern — see cursor-sites-shared/ui/WORKING_INDICATOR.md */
-@import url('working-indicator.css?v=20261120b');
-
-
-.app--bill .brief-message {
+/* Splitify pill overrides for the shared brief message. The message is appended to
+   <body> (or moved into an open dialog), never inside .app--bill, so match on the page. */
+:root:has(.app--bill) .brief-message {
   --brief-msg-bg: rgba(24, 20, 17, 0.93);
   --brief-msg-color: #efe6d4;
   --brief-msg-border: none;
